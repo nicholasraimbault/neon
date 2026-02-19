@@ -16,10 +16,52 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "play.shield.fill", accessibilityDescription: "Neon")
+            button.image = makeNeonTubeIcon()
         }
         rebuildMenu()
         startWatching()
+    }
+
+    // MARK: - Icon
+
+    func makeNeonTubeIcon() -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let img = NSImage(size: size, flipped: false) { rect in
+            let cx = rect.width / 2
+            let w: CGFloat = 6
+            let bottom: CGFloat = 3
+            let top: CGFloat = rect.height - 3
+
+            NSColor.black.setStroke()
+
+            // Glass tube (capsule)
+            let tube = NSBezierPath(roundedRect: NSRect(
+                x: cx - w / 2, y: bottom,
+                width: w, height: top - bottom
+            ), xRadius: w / 2, yRadius: w / 2)
+            tube.lineWidth = 1.5
+            tube.stroke()
+
+            // Top electrode
+            let tp = NSBezierPath()
+            tp.lineWidth = 1.5
+            tp.lineCapStyle = .round
+            tp.move(to: NSPoint(x: cx, y: top))
+            tp.line(to: NSPoint(x: cx, y: top + 2.5))
+            tp.stroke()
+
+            // Bottom electrode
+            let bp = NSBezierPath()
+            bp.lineWidth = 1.5
+            bp.lineCapStyle = .round
+            bp.move(to: NSPoint(x: cx, y: bottom))
+            bp.line(to: NSPoint(x: cx, y: bottom - 2.5))
+            bp.stroke()
+
+            return true
+        }
+        img.isTemplate = true
+        return img
     }
 
     // MARK: - Menu
