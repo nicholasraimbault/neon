@@ -2,72 +2,81 @@
 
 Fix DRM playback in Chromium-based browsers on macOS.
 
-Patches [WidevineCdm](https://www.widevine.com/) into browsers that ship without it, enabling Netflix, Spotify, and other DRM-protected content.
+Neon patches [WidevineCdm](https://www.widevine.com/) into browsers that ship without it, enabling Netflix, Spotify, Disney+, and other DRM-protected content. It auto-patches when your browser updates so you never have to think about it again.
 
 ## Supported browsers
 
-- **Helium** (`/Applications/Helium.app`)
-- **Thorium** (`/Applications/Thorium.app`)
-- **ungoogled-chromium** (`/Applications/Chromium.app`)
+| Browser | Path |
+|---------|------|
+| [Helium](https://helium.build) | `/Applications/Helium.app` |
+| [Thorium](https://thorium.rocks) | `/Applications/Thorium.app` |
+| [ungoogled-chromium](https://ungoogled-software.github.io/ungoogled-chromium-binaries/) | `/Applications/Chromium.app` |
 
 ## Install
 
-### Option A: Homebrew
+### Homebrew
 
 ```
 brew install nicholasraimbault/neon/neon
 neon-install
 ```
 
-### Option B: Menu bar app
+macOS will prompt for your password to patch apps in `/Applications` and install the auto-patch daemon.
 
-Download `Neon.dmg` from [Releases](https://github.com/nicholasraimbault/neon/releases), drag to Applications, and open.
+### Menu bar app
 
-The menu bar app:
-- Shows patch status per browser
-- **Patch Now** — patches all detected browsers
-- **Update Widevine** — re-downloads the latest WidevineCdm
-- **Launch at Login** — starts Neon on boot
-- Auto-patches when a browser updates (file watcher)
+Download **Neon.dmg** from [Releases](https://github.com/nicholasraimbault/neon/releases) and drag to Applications.
 
-### Option C: Manual
+Neon lives in your menu bar with a neon tube icon:
 
-```bash
+- Per-browser patch status
+- **Patch Now** — patch all detected browsers
+- **Update Widevine** — re-download the latest WidevineCdm
+- **Launch at Login** — start Neon on boot
+- Auto-patches when a browser updates (file watcher, no daemon needed)
+
+### Manual
+
+```
 git clone https://github.com/nicholasraimbault/neon.git
 cd neon
 bash install.sh
 ```
 
-## CLI commands (Homebrew)
+## Commands
 
 | Command | Description |
 |---------|-------------|
-| `neon-install` | Full setup: download WidevineCdm, patch browsers, install daemon |
-| `neon-uninstall` | Remove daemon and cached WidevineCdm |
+| `neon-install` | Download WidevineCdm, patch browsers, install auto-patch daemon |
 | `neon-patch` | Patch all detected browsers |
 | `neon-patch --force` | Re-patch even if already patched |
 | `neon-update-widevine` | Download latest WidevineCdm |
 | `neon-update-widevine --force` | Re-download even if cached |
-
-## Build the menu bar app
-
-```bash
-bash app/build.sh
-```
-
-Outputs `build/Neon.app` and `build/Neon-1.0.0.dmg`.
+| `neon-uninstall` | Remove daemon and cached files |
 
 ## How it works
 
-1. **download-widevine.sh** fetches the latest WidevineCdm from Google's servers (via Mozilla's version manifest), verifies the SHA-512 hash, and extracts it to `~/.local/share/WidevineCdm/`.
+1. **download-widevine.sh** fetches the latest WidevineCdm from Google (via Mozilla's version manifest), verifies the SHA-512 hash, and extracts it to `~/.local/share/WidevineCdm/`.
 
-2. **fix-drm.sh** copies the cached WidevineCdm into each browser's framework directory, clears extended attributes, and ad-hoc codesigns the app bundle.
+2. **fix-drm.sh** copies WidevineCdm into each browser's framework directory, clears extended attributes, and ad-hoc codesigns the bundle.
 
-3. A **LaunchDaemon** watches `/Applications/*.app` for changes and re-runs the patch automatically when a browser updates.
+3. A **LaunchDaemon** watches `/Applications/Helium.app`, `/Applications/Thorium.app`, and `/Applications/Chromium.app` for changes and re-patches automatically on updates.
+
+The menu bar app replaces the LaunchDaemon with a built-in file watcher — same auto-patch behavior, no root daemon required.
+
+## Build from source
+
+```
+bash app/build.sh
+```
+
+Produces `build/Neon.app` and `build/Neon-1.0.0.dmg`.
+
+Requires Xcode Command Line Tools (`xcode-select --install`).
 
 ## Uninstall
 
-```bash
+```
 # Homebrew
 neon-uninstall && brew uninstall neon
 
