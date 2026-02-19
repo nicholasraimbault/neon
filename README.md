@@ -12,6 +12,11 @@ Neon patches [WidevineCdm](https://www.widevine.com/) into browsers that ship wi
 | [Thorium](https://thorium.rocks) | `/Applications/Thorium.app` |
 | [ungoogled-chromium](https://ungoogled-software.github.io/ungoogled-chromium-binaries/) | `/Applications/Chromium.app` |
 
+## Requirements
+
+- macOS
+- Python 3 (ships with Xcode Command Line Tools)
+
 ## Install
 
 ### Homebrew
@@ -27,13 +32,13 @@ macOS will prompt for your password to patch apps in `/Applications` and install
 
 Download **Neon.dmg** from [Releases](https://github.com/nicholasraimbault/neon/releases) and drag to Applications.
 
-Neon lives in your menu bar with a neon tube icon:
+Neon lives in your menu bar:
 
 - Per-browser patch status
 - **Patch Now** — patch all detected browsers
 - **Update Widevine** — re-download the latest WidevineCdm
 - **Launch at Login** — start Neon on boot
-- Auto-patches when a browser updates (file watcher, no daemon needed)
+- Auto-patches when a browser updates (no daemon needed)
 
 ### Manual
 
@@ -43,7 +48,9 @@ cd neon
 bash install.sh
 ```
 
-## Commands
+## CLI commands
+
+Available after Homebrew or manual install. The menu bar app has the same functionality built in.
 
 | Command | Description |
 |---------|-------------|
@@ -56,13 +63,11 @@ bash install.sh
 
 ## How it works
 
-1. **download-widevine.sh** fetches the latest WidevineCdm from Google (via Mozilla's version manifest), verifies the SHA-512 hash, and extracts it to `~/.local/share/WidevineCdm/`.
+1. Neon downloads the latest WidevineCdm from Google (via Mozilla's version manifest) and verifies its SHA-512 hash.
 
-2. **fix-drm.sh** copies WidevineCdm into each browser's framework directory, clears extended attributes, and ad-hoc codesigns the bundle.
+2. It copies WidevineCdm into each browser's framework directory, clears extended attributes, and ad-hoc codesigns the bundle.
 
-3. A **LaunchDaemon** watches `/Applications/Helium.app`, `/Applications/Thorium.app`, and `/Applications/Chromium.app` for changes and re-patches automatically on updates.
-
-The menu bar app replaces the LaunchDaemon with a built-in file watcher — same auto-patch behavior, no root daemon required.
+3. A background watcher monitors your browsers for updates and re-patches automatically. The Homebrew/manual install uses a LaunchDaemon for this; the menu bar app uses a built-in file watcher instead (no root daemon needed).
 
 ## Build from source
 
