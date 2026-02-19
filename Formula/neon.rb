@@ -2,7 +2,7 @@ class Neon < Formula
   desc "Fix DRM playback in Chromium-based browsers on macOS"
   homepage "https://github.com/nicholasraimbault/neon"
   url "https://github.com/nicholasraimbault/neon/archive/refs/tags/v1.0.0.tar.gz"
-  sha256 "28707c6decb53b1162c28d44f919c5aa85a2e44495d50b12b570c5a6b44ddf40"
+  sha256 "d7994b2dccb1bc83c541e80db17a935e1e24af84d335988cf8a3ea117d4f36e5"
   license "MIT"
 
   depends_on :macos
