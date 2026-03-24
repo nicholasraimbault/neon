@@ -1,4 +1,6 @@
 build/
+packaging/deb/neon-drm_*
+packaging/deb/neon-tray
 
 # dependencies (bun install)
 node_modules

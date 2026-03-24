@@ -21,13 +21,31 @@ if [ "$FORCE" = false ] && [ -d "$OUTPUT_DIR" ] && [ -f "$OUTPUT_DIR/manifest.js
   exit 0
 fi
 
+OS=$(uname -s)
 ARCH=$(uname -m)
-if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
-  PLATFORM_KEY="Darwin_aarch64-gcc3"
-elif [ "$ARCH" = "x86_64" ]; then
-  PLATFORM_KEY="Darwin_x86_64-gcc3-u-i386-x86_64"
+
+if [ "$OS" = "Darwin" ]; then
+  if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
+    PLATFORM_KEY="Darwin_aarch64-gcc3"
+  elif [ "$ARCH" = "x86_64" ]; then
+    PLATFORM_KEY="Darwin_x86_64-gcc3-u-i386-x86_64"
+  else
+    echo "Error: Unsupported architecture: $ARCH"
+    exit 1
+  fi
+elif [ "$OS" = "Linux" ]; then
+  if [ "$ARCH" = "x86_64" ]; then
+    PLATFORM_KEY="Linux_x86_64-gcc3"
+  elif [ "$ARCH" = "aarch64" ]; then
+    echo "Error: ARM64 Linux WidevineCdm is not available from Google."
+    echo "ChromeOS LaCrOS extraction support is planned for a future release."
+    exit 2
+  else
+    echo "Error: Unsupported architecture: $ARCH"
+    exit 1
+  fi
 else
-  echo "Error: Unsupported architecture: $ARCH"
+  echo "Error: Unsupported OS: $OS"
   exit 1
 fi
 
@@ -50,7 +68,11 @@ CRX3_FILE="$TMP_DIR/widevine.crx3"
 curl -sL -o "$CRX3_FILE" "$URL"
 
 # Verify SHA-512
-ACTUAL_HASH=$(shasum -a 512 "$CRX3_FILE" | awk '{print $1}')
+if command -v sha512sum >/dev/null 2>&1; then
+  ACTUAL_HASH=$(sha512sum "$CRX3_FILE" | awk '{print $1}')
+else
+  ACTUAL_HASH=$(shasum -a 512 "$CRX3_FILE" | awk '{print $1}')
+fi
 if [ "$ACTUAL_HASH" != "$HASH" ]; then
   echo "Error: SHA-512 hash mismatch!"
   rm -rf "$TMP_DIR"
