@@ -65,10 +65,13 @@ neon-install
 
 ### Linux — .deb (Debian/Ubuntu)
 
-Download `neon-drm_1.0.0_amd64.deb` from [Releases](https://github.com/nicholasraimbault/neon/releases).
+Build from source:
 
 ```
-sudo dpkg -i neon-drm_1.0.0_amd64.deb
+git clone https://github.com/nicholasraimbault/neon.git
+cd neon
+bash packaging/deb/build-deb.sh
+sudo dpkg -i packaging/deb/neon-drm_*.deb
 neon-install
 ```
 
