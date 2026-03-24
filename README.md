@@ -173,6 +173,7 @@ bash uninstall.sh
 
 ## Known limitations
 
+- **Linux support is untested.** The CLI, systemd daemon, and tray app have been built and pass CI, but have not been verified on a real Linux system yet. Bug reports welcome.
 - **Flatpak browsers**: Flatpak sandboxing prevents writing to the browser's install directory. Flatpak support is not yet implemented.
 
 ## License
