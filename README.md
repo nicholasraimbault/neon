@@ -4,6 +4,15 @@ Fix DRM playback in Chromium-based browsers on macOS and Linux.
 
 Neon patches [WidevineCdm](https://www.widevine.com/) into browsers that ship without it, enabling Netflix, Spotify, Disney+, and other DRM-protected content. It auto-patches when your browser updates so you never have to think about it again.
 
+## Features
+
+- **Multi-browser**: Supports Helium, Thorium, ungoogled-chromium, and Chromium out of the box.
+- **Auto-discovery**: Scans for additional Chromium-based browsers beyond the hardcoded list.
+- **Auto-patching**: Re-patches automatically when a browser updates (LaunchDaemon on macOS, systemd on Linux).
+- **Tray/menu bar app**: Per-browser status, one-click patching, launch at login.
+- **Update check**: See if a newer WidevineCdm is available from Google.
+- **ARM64 Linux**: Extracts WidevineCdm from ChromeOS LaCrOS images for aarch64 systems (Asahi Linux, Raspberry Pi).
+
 ## Supported browsers
 
 ### macOS
@@ -14,6 +23,8 @@ Neon patches [WidevineCdm](https://www.widevine.com/) into browsers that ship wi
 | [Thorium](https://thorium.rocks) | `/Applications/Thorium.app` |
 | [ungoogled-chromium](https://ungoogled-software.github.io/ungoogled-chromium-binaries/) | `/Applications/Chromium.app` |
 
+Plus any Chromium-based `.app` in `/Applications` (auto-discovered).
+
 ### Linux
 
 | Browser | Path(s) |
@@ -21,15 +32,17 @@ Neon patches [WidevineCdm](https://www.widevine.com/) into browsers that ship wi
 | [Helium](https://helium.build) | `/opt/helium-browser-bin` |
 | [Thorium](https://thorium.rocks) | `/opt/chromium.org/thorium`, `/opt/thorium-browser` |
 | [ungoogled-chromium](https://ungoogled-software.github.io/ungoogled-chromium-binaries/) | `/usr/lib/chromium`, `/usr/lib64/chromium` |
-| Chromium | `/usr/lib/chromium-browser` |
+| [Chromium](https://www.chromium.org/) | `/usr/lib/chromium-browser` |
+
+Plus any Chromium-based browser in `/opt`, `/usr/lib`, `/usr/lib64` (auto-discovered).
 
 ## Requirements
 
-- Python 3
-- curl, unzip
+- Python 3, curl, unzip
 - macOS or Linux (x86_64 or ARM64)
+- squashfs-tools (ARM64 Linux only)
+- Go 1.21+ and `libayatana-appindicator3-dev` (only if building the Linux tray app)
 - systemd (optional, for auto-patching on Linux)
-- squashfs-tools (optional, for ARM64 Linux)
 
 ## Install
 
@@ -65,8 +78,6 @@ neon-install
 
 ### Linux — .deb (Debian/Ubuntu)
 
-Build from source:
-
 ```
 git clone https://github.com/nicholasraimbault/neon.git
 cd neon
@@ -75,14 +86,7 @@ sudo dpkg -i packaging/deb/neon-drm_*.deb
 neon-install
 ```
 
-### Linux — Tray app
-
-The `neon-tray` binary provides a system tray app with the same functionality as the macOS menu bar app. It's included in the AUR and .deb packages, or build from source:
-
-```
-cd linux-app
-go build -o neon-tray .
-```
+Requires Go to build the tray app binary.
 
 ### Manual (macOS or Linux)
 
@@ -92,9 +96,19 @@ cd neon
 bash install.sh
 ```
 
-## CLI commands
+This downloads WidevineCdm, patches all detected browsers, and sets up auto-patching. The scripts can be run directly afterward:
 
-Available after installing via Homebrew, AUR, .deb, or manual install. The tray/menu bar apps have the same functionality built in.
+```
+bash fix-drm.sh              # Patch browsers
+bash fix-drm.sh --force      # Re-patch even if already patched
+bash download-widevine.sh     # Download latest WidevineCdm
+bash check-widevine-update.sh # Check for newer version
+bash uninstall.sh             # Remove daemon and cache
+```
+
+### CLI wrapper commands
+
+Homebrew, PKGBUILD, and .deb installs add these to your PATH:
 
 | Command | Description |
 |---------|-------------|
@@ -110,9 +124,9 @@ Available after installing via Homebrew, AUR, .deb, or manual install. The tray/
 
 1. Neon downloads the latest WidevineCdm from Google (via Mozilla's version manifest) and verifies its SHA-512 hash.
 
-2. It copies WidevineCdm into each browser's framework directory, then:
-   - **macOS**: clears extended attributes and ad-hoc codesigns the bundle
-   - **Linux**: sets file permissions (no codesigning needed)
+2. It copies WidevineCdm into each browser's install directory:
+   - **macOS**: patches the `.app` bundle, clears extended attributes, and ad-hoc codesigns
+   - **Linux**: copies into the browser directory alongside the binary
 
 3. A background watcher monitors your browsers for updates and re-patches automatically:
    - **macOS Homebrew/manual**: LaunchDaemon with WatchPaths
@@ -128,12 +142,13 @@ Available after installing via Homebrew, AUR, .deb, or manual install. The tray/
 bash app/build.sh
 ```
 
-Produces `build/Neon.app` and `build/Neon-1.0.0.dmg`. Requires Xcode Command Line Tools.
+Produces `build/Neon.app` and `build/Neon.dmg`. Requires Xcode Command Line Tools.
 
 ### Linux tray app
 
 ```
 cd linux-app
+go mod tidy
 go build -o neon-tray .
 ```
 
@@ -145,7 +160,7 @@ Requires Go 1.21+ and `libayatana-appindicator3-dev`.
 # .deb
 bash packaging/deb/build-deb.sh
 
-# AUR (test locally)
+# Arch (test locally)
 cd packaging/aur && makepkg -si
 ```
 
@@ -158,7 +173,7 @@ neon-uninstall && brew uninstall neon
 # macOS — Manual
 bash uninstall.sh
 
-# Linux — Arch (PKGBUILD)
+# Linux — Arch
 neon-uninstall && sudo pacman -R neon-drm
 
 # Linux — .deb
@@ -168,16 +183,10 @@ neon-uninstall && sudo dpkg -r neon-drm
 bash uninstall.sh
 ```
 
-## Features
-
-- **Auto-discovery**: Neon scans for Chromium-based browsers beyond the hardcoded list, so new browsers work without code changes.
-- **Update check**: Run `neon-check-update` to see if a newer WidevineCdm is available.
-- **ARM64 Linux**: Extracts WidevineCdm from ChromeOS LaCrOS images for ARM64/aarch64 systems (Asahi Linux, Raspberry Pi). Requires `squashfs-tools`.
-
 ## Known limitations
 
 - **Linux support is untested.** The CLI, systemd daemon, and tray app have been built and pass CI, but have not been verified on a real Linux system yet. Bug reports welcome.
-- **Flatpak browsers**: Flatpak sandboxing prevents writing to the browser's install directory. Flatpak support is not yet implemented.
+- **Flatpak browsers**: Flatpak sandboxing prevents writing to the browser's install directory.
 
 ## License
 
