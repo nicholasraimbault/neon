@@ -53,10 +53,12 @@ Neon lives in your menu bar:
 - **Launch at Login** — start Neon on boot
 - Auto-patches when a browser updates (no daemon needed)
 
-### Linux — AUR (Arch/CachyOS)
+### Linux — Arch (PKGBUILD)
 
 ```
-yay -S neon-drm
+git clone https://github.com/nicholasraimbault/neon.git
+cd neon/packaging/aur
+makepkg -si
 neon-install
 ```
 
@@ -151,8 +153,8 @@ neon-uninstall && brew uninstall neon
 # macOS — Manual
 bash uninstall.sh
 
-# Linux — AUR
-neon-uninstall && yay -R neon-drm
+# Linux — Arch (PKGBUILD)
+neon-uninstall && sudo pacman -R neon-drm
 
 # Linux — .deb
 neon-uninstall && sudo dpkg -r neon-drm
