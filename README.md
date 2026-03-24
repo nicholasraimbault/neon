@@ -27,8 +27,9 @@ Neon patches [WidevineCdm](https://www.widevine.com/) into browsers that ship wi
 
 - Python 3
 - curl, unzip
-- macOS or Linux (x86_64)
+- macOS or Linux (x86_64 or ARM64)
 - systemd (optional, for auto-patching on Linux)
+- squashfs-tools (optional, for ARM64 Linux)
 
 ## Install
 
@@ -100,6 +101,7 @@ Available after installing via Homebrew, AUR, .deb, or manual install. The tray/
 | `neon-update-widevine` | Download latest WidevineCdm |
 | `neon-update-widevine --force` | Re-download even if cached |
 | `neon-uninstall` | Remove daemon and cached files |
+| `neon-check-update` | Check if a newer WidevineCdm version is available |
 
 ## How it works
 
@@ -163,9 +165,14 @@ neon-uninstall && sudo dpkg -r neon-drm
 bash uninstall.sh
 ```
 
+## Features
+
+- **Auto-discovery**: Neon scans for Chromium-based browsers beyond the hardcoded list, so new browsers work without code changes.
+- **Update check**: Run `neon-check-update` to see if a newer WidevineCdm is available.
+- **ARM64 Linux**: Extracts WidevineCdm from ChromeOS LaCrOS images for ARM64/aarch64 systems (Asahi Linux, Raspberry Pi). Requires `squashfs-tools`.
+
 ## Known limitations
 
-- **ARM64 Linux**: Google does not distribute WidevineCdm for Linux ARM64. Support is planned via ChromeOS LaCrOS extraction.
 - **Flatpak browsers**: Flatpak sandboxing prevents writing to the browser's install directory. Flatpak support is not yet implemented.
 
 ## License

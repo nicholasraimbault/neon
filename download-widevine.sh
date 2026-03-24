@@ -37,9 +37,7 @@ elif [ "$OS" = "Linux" ]; then
   if [ "$ARCH" = "x86_64" ]; then
     PLATFORM_KEY="Linux_x86_64-gcc3"
   elif [ "$ARCH" = "aarch64" ]; then
-    echo "Error: ARM64 Linux WidevineCdm is not available from Google."
-    echo "ChromeOS LaCrOS extraction support is planned for a future release."
-    exit 2
+    PLATFORM_KEY="LACROS_ARM64"
   else
     echo "Error: Unsupported architecture: $ARCH"
     exit 1
@@ -48,6 +46,108 @@ else
   echo "Error: Unsupported OS: $OS"
   exit 1
 fi
+
+# --- ARM64 Linux: extract from ChromeOS LaCrOS ---
+
+if [ "${PLATFORM_KEY:-}" = "LACROS_ARM64" ]; then
+  echo "ARM64 Linux: extracting WidevineCdm from ChromeOS LaCrOS image..."
+
+  if ! command -v unsquashfs >/dev/null 2>&1; then
+    echo "Error: unsquashfs is required for ARM64. Install squashfs-tools:"
+    echo "  sudo apt install squashfs-tools   # Debian/Ubuntu"
+    echo "  sudo pacman -S squashfs-tools     # Arch"
+    exit 1
+  fi
+
+  TMP_DIR=$(mktemp -d)
+  trap 'rm -rf "$TMP_DIR"' EXIT
+
+  # Fetch the latest LaCrOS version URL from the update manifest
+  echo "Fetching LaCrOS version..."
+  LACROS_URL=$(curl -sL "https://chromiumdash.appspot.com/fetch/milestones" | python3 -c "
+import json, sys
+ms = json.loads(sys.stdin.read())
+latest = max(ms, key=lambda m: m['milestone'])
+v = latest['chromeos_branch_base_position']
+# LaCrOS squashfs URL pattern
+print(f'https://commondatastorage.googleapis.com/chromeos-localmirror/distfiles/chromeos-lacros-arm64-squash-zstd-{latest[\"milestone\"]}.0.0.0')
+" 2>/dev/null || true)
+
+  # Fall back to a known recovery image approach if the above fails
+  if [ -z "$LACROS_URL" ] || ! curl -sI "$LACROS_URL" | grep -q "200"; then
+    echo "Fetching LaCrOS recovery image metadata..."
+    LACROS_URL=$(curl -sL "https://chromiumdash.appspot.com/cros/fetch_serving_builds?deviceCategory=ChromeOS" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+# Find any ARM64 board's LaCrOS component
+for board in data.get('builds', {}).values():
+    for build in board if isinstance(board, list) else [board]:
+        lacros = build.get('lacros', {})
+        if 'uri' in lacros:
+            print(lacros['uri'])
+            sys.exit(0)
+print('')
+" 2>/dev/null || echo "")
+  fi
+
+  if [ -z "$LACROS_URL" ]; then
+    echo "Error: Could not find LaCrOS download URL."
+    echo "You can try the Asahi Linux widevine-installer as an alternative:"
+    echo "  https://github.com/AsahiLinux/widevine-installer"
+    rm -rf "$TMP_DIR"
+    exit 1
+  fi
+
+  echo "Downloading LaCrOS image..."
+  curl -sL -o "$TMP_DIR/lacros.squash" "$LACROS_URL"
+
+  echo "Extracting WidevineCdm from LaCrOS..."
+  unsquashfs -f -d "$TMP_DIR/lacros" "$TMP_DIR/lacros.squash" \
+    'WidevineCdm/*' '**/libwidevinecdm.so' '**/manifest.json' 2>/dev/null || true
+
+  # Find the extracted WidevineCdm
+  CDM_DIR=$(find "$TMP_DIR/lacros" -type d -name "WidevineCdm" 2>/dev/null | head -1)
+  if [ -z "$CDM_DIR" ] || [ ! -f "$CDM_DIR/manifest.json" ]; then
+    echo "Error: Could not find WidevineCdm in LaCrOS image."
+    rm -rf "$TMP_DIR"
+    exit 1
+  fi
+
+  # Restructure: cros_arm64 -> linux_arm64
+  mkdir -p "$OUTPUT_DIR"
+  rm -rf "$OUTPUT_DIR"/*
+  cp "$CDM_DIR/manifest.json" "$OUTPUT_DIR/"
+  [ -f "$CDM_DIR/LICENSE" ] && cp "$CDM_DIR/LICENSE" "$OUTPUT_DIR/"
+  [ -f "$CDM_DIR/LICENSE.txt" ] && cp "$CDM_DIR/LICENSE.txt" "$OUTPUT_DIR/"
+
+  mkdir -p "$OUTPUT_DIR/_platform_specific/linux_arm64"
+  # Copy from whichever platform dir exists (cros_arm64 or linux_arm64)
+  for src_dir in "$CDM_DIR/_platform_specific/cros_arm64" "$CDM_DIR/_platform_specific/linux_arm64"; do
+    if [ -d "$src_dir" ]; then
+      cp "$src_dir"/libwidevinecdm.so "$OUTPUT_DIR/_platform_specific/linux_arm64/"
+      break
+    fi
+  done
+
+  if [ ! -f "$OUTPUT_DIR/_platform_specific/linux_arm64/libwidevinecdm.so" ]; then
+    # Try finding it anywhere in the extraction
+    SO_FILE=$(find "$TMP_DIR/lacros" -name "libwidevinecdm.so" 2>/dev/null | head -1)
+    if [ -n "$SO_FILE" ]; then
+      cp "$SO_FILE" "$OUTPUT_DIR/_platform_specific/linux_arm64/"
+    else
+      echo "Error: libwidevinecdm.so not found in LaCrOS image."
+      rm -rf "$TMP_DIR"
+      exit 1
+    fi
+  fi
+
+  chmod -R 755 "$OUTPUT_DIR"
+  rm -rf "$TMP_DIR"
+  echo "WidevineCdm (ARM64) saved to $OUTPUT_DIR"
+  exit 0
+fi
+
+# --- Standard download (x86_64 and macOS) ---
 
 echo "Fetching latest WidevineCdm version info..."
 JSON=$(curl -sL "https://hg.mozilla.org/mozilla-central/raw-file/tip/toolkit/content/gmp-sources/widevinecdm.json")

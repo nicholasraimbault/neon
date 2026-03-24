@@ -13,6 +13,7 @@ class Neon < Formula
     libexec.install "download-widevine.sh"
     libexec.install "install.sh"
     libexec.install "uninstall.sh"
+    libexec.install "check-widevine-update.sh"
 
     # Wrapper scripts in bin (added to PATH)
     (bin/"neon-install").write <<~SH
@@ -33,6 +34,11 @@ class Neon < Formula
     (bin/"neon-update-widevine").write <<~SH
       #!/bin/bash
       exec "#{libexec}/download-widevine.sh" "$@"
+    SH
+
+    (bin/"neon-check-update").write <<~SH
+      #!/bin/bash
+      exec "#{libexec}/check-widevine-update.sh" "$@"
     SH
   end
 

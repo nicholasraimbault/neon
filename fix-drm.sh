@@ -30,6 +30,64 @@ LINUX_BROWSERS=(
   "Chromium|/usr/lib/chromium-browser"
 )
 
+# --- Auto-discovery ---
+
+# Scan for additional Chromium-based browsers not in the hardcoded list.
+# On macOS: look for .app bundles with a Framework.framework/Versions structure.
+# On Linux: look for directories containing chrome-sandbox (Chromium marker).
+
+discover_darwin_browsers() {
+  local known_apps=""
+  for entry in "${DARWIN_BROWSERS[@]}"; do
+    known_apps="$known_apps|$(echo "$entry" | cut -d'|' -f1)"
+  done
+
+  for app in /Applications/*.app; do
+    [ -d "$app" ] || continue
+    app_name=$(basename "$app" .app)
+
+    # Skip already-known browsers
+    echo "$known_apps" | grep -q "|$app_name" && continue
+
+    # Look for a Chromium framework structure
+    for fw_dir in "$app/Contents/Frameworks/"*".framework/Versions"; do
+      [ -d "$fw_dir" ] || continue
+      # Check for version-numbered subdirectory
+      if ls "$fw_dir" 2>/dev/null | grep -qE '^[0-9]+\.'; then
+        fw_name=$(basename "$(dirname "$fw_dir")" .framework)
+        DARWIN_BROWSERS+=("$app_name|$fw_name")
+        break
+      fi
+    done
+  done
+}
+
+discover_linux_browsers() {
+  local known_paths=""
+  for entry in "${LINUX_BROWSERS[@]}"; do
+    known_paths="$known_paths|$(echo "$entry" | cut -d'|' -f2)"
+  done
+
+  # Scan common install locations for Chromium-based browsers
+  local scan_dirs=(/opt /usr/lib /usr/lib64 /usr/local/lib)
+  for scan_dir in "${scan_dirs[@]}"; do
+    [ -d "$scan_dir" ] || continue
+    for dir in "$scan_dir"/*/; do
+      [ -d "$dir" ] || continue
+      dir="${dir%/}"
+
+      # Skip already-known paths
+      echo "$known_paths" | grep -q "|$dir" && continue
+
+      # Check for chrome-sandbox (present in all Chromium-based browsers)
+      if [ -f "$dir/chrome-sandbox" ] || [ -f "$dir/chromium-sandbox" ]; then
+        browser_name=$(basename "$dir")
+        LINUX_BROWSERS+=("$browser_name (discovered)|$dir")
+      fi
+    done
+  done
+}
+
 # --- Shared: ensure WidevineCdm is cached ---
 
 ensure_widevine() {
@@ -152,8 +210,14 @@ patch_linux() {
 # --- Main ---
 
 case "$OS" in
-  Darwin) patch_darwin "${1:-}" ;;
-  Linux)  patch_linux "${1:-}" ;;
+  Darwin)
+    discover_darwin_browsers
+    patch_darwin "${1:-}"
+    ;;
+  Linux)
+    discover_linux_browsers
+    patch_linux "${1:-}"
+    ;;
   *)
     echo "Error: Unsupported OS: $OS"
     exit 1
