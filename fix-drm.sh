@@ -141,7 +141,7 @@ patch_darwin() {
 
     tmp_dest="$tmp/Contents/Frameworks/${fw_name}.framework/Versions/$ver/Libraries/WidevineCdm"
     cp -R "$CACHE_DIR" "$tmp_dest"
-    xattr -cr "$tmp"
+    xattr -c "$tmp"
 
     rm -rf "$app_path"
     mv "$tmp" "$app_path"
