@@ -150,7 +150,7 @@ fi
 # --- Standard download (x86_64 and macOS) ---
 
 echo "Fetching latest WidevineCdm version info..."
-JSON=$(curl -sL "https://hg.mozilla.org/mozilla-central/raw-file/tip/toolkit/content/gmp-sources/widevinecdm.json")
+JSON=$(curl -sL "https://raw.githubusercontent.com/mozilla-firefox/firefox/refs/heads/main/toolkit/content/gmp-sources/widevinecdm.json")
 
 read -r VERSION URL HASH SIZE <<< $(python3 -c "
 import json, sys
