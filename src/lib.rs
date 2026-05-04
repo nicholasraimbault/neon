@@ -49,4 +49,16 @@ pub mod patch;
 pub mod platform;
 pub mod widevine;
 
+/// V3 localhost-bridge — experimental, gated on `experimental-bridge`.
+///
+/// Default builds compile no V3 code. Activate with:
+///
+/// ```sh
+/// cargo install neon --features experimental-bridge
+/// ```
+///
+/// See [`bridge`] for the full module documentation.
+#[cfg(feature = "experimental-bridge")]
+pub mod bridge;
+
 pub use error::{Error, ErrorCategory, Result};
