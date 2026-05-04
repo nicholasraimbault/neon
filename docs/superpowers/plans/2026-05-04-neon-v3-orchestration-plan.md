@@ -124,7 +124,7 @@ Per the [V3 scaffolding plan](../specs/2026-05-04-neon-v3-localhost-bridge-scaff
 
 ### V3-Phase D: Looking Glass integration
 
-**Goal:** After Phase C provisions a working Windows guest, Phase D wires up the Looking Glass shared-memory transport so `neon stream` opens a near-zero-latency view of the guest desktop on the Linux host.
+**Goal:** After Phase C provisions a working Windows guest, Phase D wires up the Looking Glass shared-memory transport so `neon stream` opens a near-zero-latency view of the guest desktop on the Linux host. **Also: extend the tray menu with V3 streaming controls.**
 
 | Deliverable | Owner | DoD |
 |---|---|---|
@@ -133,7 +133,8 @@ Per the [V3 scaffolding plan](../specs/2026-05-04-neon-v3-localhost-bridge-scaff
 | `src/bridge/idd_fallback.rs` — dummy plug detection | bridge | If single-GPU host and Looking Glass IDD-host not yet shipped, detect whether dummy HDMI/DP plug is connected via `/sys/class/drm/<output>/status`; surface clear "you need a dummy plug at $X URL" message if not |
 | `src/cli/stream/start.rs` — start command | cli | Resumes VM from snapshot, waits for Sunshine handshake, launches Looking Glass client. Total cold-start target: <10s on hot snapshot |
 | `src/cli/stream/stop.rs` — stop command | cli | Snapshots VM, closes Looking Glass client, leaves domain defined for next start |
-| Tests | bridge/cli | Mock kvmfr device + libvirt domain; verify orchestration logic without real LG client |
+| **Tray extensions** (`src/daemon/tray.rs` — gated `#[cfg(feature = "experimental-bridge")]`) | daemon | New menu items added below existing patch controls: "Stream Netflix", "Stream Disney+", "Stream HBO Max", "Stream… (custom URL)" quick-launches; "Bridge" submenu with: VM status (Ready / Paused / Repairing), snapshot age, "Pause VM" / "Resume VM" / "Repair" actions, "Bridge eval: N days remaining" indicator when on eval license. New `TrayCommand` variants: `StreamUrl(String)`, `BridgePause`, `BridgeResume`, `BridgeRepair`. Default V2 install (no feature) shows the existing menu unchanged. |
+| Tests | bridge/cli/daemon | Mock kvmfr device + libvirt domain; verify orchestration logic without real LG client; tray menu construction tests cover both feature states (with and without `experimental-bridge`) |
 
 **Gate:** `neon stream start` on the same hardware from Phase C launches Looking Glass client in <10s; window grabs cursor cleanly; VM is responsive.
 
@@ -160,7 +161,7 @@ If pursued:
 
 ### V3-Phase F: Setup wizard polish + repair + uninstall
 
-**Goal:** Production polish — every error path has a remediation; full lifecycle (install/start/stop/repair/uninstall) is bullet-proof.
+**Goal:** Production polish — every error path has a remediation; full lifecycle (install/start/stop/repair/uninstall) is bullet-proof. Tray polish for V3-aware notifications.
 
 | Deliverable | Owner | DoD |
 |---|---|---|
@@ -168,6 +169,7 @@ If pursued:
 | `src/cli/stream/uninstall.rs` | cli | Removes libvirt domain, deletes ISO + snapshots, unloads kvmfr module, removes config; preserves `~/.config/neon/config.toml` unless `--purge` |
 | `src/bridge/health.rs` — periodic health check | bridge | Daemon-side: every 10 min, verifies VM is healthy, snapshot is recent, Sunshine is responsive; logs to `~/.cache/neon/logs/bridge.log` |
 | `src/cli/stream/init.rs` — wizard polish | cli | Every error gets specific remediation; spinners with ETA per phase; cancellation handler that reverts cleanly |
+| **Tray polish for V3** (`src/daemon/tray.rs` + `src/notify.rs`) | daemon | Bridge-state changes (VM paused, eval near expiry, repair triggered, snapshot stale, etc.) surface as native notifications; tray icon updates dynamically (e.g. monochrome when bridge is healthy, alert badge when attention needed). Eval-expiry-soon (<7 days) shows up as a recurring tray item with "Rearm now" action. |
 | ROADMAP.md update + CHANGELOG entry | infra | V3 features documented |
 | `docs/v3/` — user-facing docs | infra | Hardware compat matrix, troubleshooting, license FAQ |
 
@@ -188,6 +190,25 @@ Every CLI subcommand goes through a UX review checklist:
 - [ ] Cancellation (Ctrl-C) is graceful — partial state cleaned up automatically
 - [ ] Defaults are sensible — user doesn't pick keyboard layout, locale, timezone, etc.
 - [ ] License posture is asked once, stored, never re-prompted
+
+### UI surfaces — what we ship and what we deliberately don't
+
+V3 grows two existing UI surfaces; introduces no new app windows.
+
+| Surface | V2 today | V3 changes |
+|---|---|---|
+| **CLI subcommands** | 13 verbs (init/setup/patch/status/list-browsers/doctor/test/update/repair/launch/uninstall/completion/manpage) | Adds the `neon stream` subcommand tree (init/start/stop/status/repair/uninstall/license) under the experimental-bridge feature flag |
+| **System tray menu** | Per-browser status, Patch Now, Update Widevine, Launch at Login, Quit | Adds Stream Netflix/Disney+/HBO/custom-URL quick-launches, a Bridge submenu (status/pause/resume/repair/eval-days-remaining), feature-gated so default V2 install is unchanged |
+| **Native notifications** | Patch success/failure | Bridge-state notifications (VM paused, eval expiring, repair triggered) |
+| **Looking Glass window** | (none) | The actual streaming experience — fullscreen guest desktop via shared-memory transport |
+
+Surfaces explicitly NOT shipped in V3 (per UI direction discussion):
+
+- ❌ **No full GUI app** (Tauri / Electron / native). V0 had Swift menu bar + Go systray; we deleted both because maintaining native UIs in two languages dominated effort vs. value. Not repeating that.
+- ❌ **No web UI dashboard** in V3.0. Queued for V3.x if 3+ beta users explicitly request a no-CLI path. Lightest answer would be `neon stream dashboard` opening browser to `127.0.0.1:<port>` — Plex/Tailscale/Sonarr pattern. ~1 weekend if pursued.
+- ❌ **No TUI** (ratatui-style dashboard). Queued for V4+ if web UI proves insufficient.
+
+The existing tray + notifications + Looking Glass window is the GUI. CLI is the trigger surface. That's the modern app pattern (Slack, Discord, Tailscale, 1Password, ProtonVPN — all primarily tray-driven with rare windowed surfaces).
 
 ### Testing strategy
 
