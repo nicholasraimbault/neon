@@ -21,6 +21,8 @@ Order:
 - 2026-05-04: Beta tester recruitment via pinned GitHub issue first; subreddits considered in Phase 6
 - 2026-05-04: `homebrew-neon` tap archival happens 30 days after V2 ships (grace period)
 - 2026-05-04: Orchestrator → user check-ins at end of each phase + on blockers (not per-task)
+- 2026-05-04: Phase 3 spawned serially (platform → daemon) after parallel agent activity correlated with noctalia-shell crash
+- 2026-05-04: `neon localhost-bridge` queued as **V3 stretch goal** behind Cargo feature flag `experimental-bridge`. Recipe: Win11 IoT LTSC (BYO license) + Looking Glass B7 + GPU/TPM passthrough + HEVC (free in IoT LTSC). Verified gap: WinBoat (21k⭐) abandoned Looking Glass; cloud SaaS bans VOD streaming; 50-200k addressable audience. Three blockers documented: license grey-area (mitigated by BYO posture), Looking Glass IDD paused (mitigated by $5 dummy HDMI plug), niche pricing (free / part of Neon). Build after V2.0 ships.
 
 ## Phase status
 
