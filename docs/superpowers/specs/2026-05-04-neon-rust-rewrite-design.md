@@ -54,7 +54,8 @@ Adding a new browser requires touching all three implementations. This multiplie
 - Windows support in V1 (planned V2; documented in ROADMAP).
 - ARM64 Linux support in V1 (cut — current implementation likely doesn't work on Apple Silicon Asahi anyway; revisit in V2 with proper ELF binary patching).
 - Firefox-family or principled-privacy-browser support (verified out of scope: Firefox auto-downloads Widevine on x86_64; LibreWolf has built-in toggle; Tor/Mullvad/Cromite explicitly reject DRM).
-- Homebrew distribution (dropped; `curl | sh` covers both Mac and Linux).
+- Homebrew distribution (dropped — `homebrew-neon` tap archived; `curl | sh` universal installer covers both Mac and Linux).
+- Linux Homebrew (technically supported by Homebrew 2.0+ but ~0% of Linux users have it installed; not a viable distribution channel).
 - AUR / `.deb` / `.rpm` registry publishing in V1 (deferred to V1.1 if user demand exists).
 - macOS notarization or paid Apple Developer account.
 - Browser extension companion (Chromium sandbox prevents writing to browser bundle from within an extension).
@@ -538,6 +539,7 @@ curl -fsSL https://github.com/nicholasraimbault/neon/releases/latest/download/ne
 - `CODE_OF_CONDUCT.md` — Contributor Covenant 2.1 boilerplate
 - `ROADMAP.md` — current state, V1.1 plans (AUR/.deb), V2 plans (Windows, ARM64-with-binary-patching)
 - `CHANGELOG.md` — managed by release-please
+- `MIGRATION.md` — per-install-path upgrade instructions for V1 → V2 users
 - License remains MIT (unchanged)
 
 ### Issue triage & failure visibility
@@ -549,24 +551,45 @@ curl -fsSL https://github.com/nicholasraimbault/neon/releases/latest/download/ne
 
 ## Migration plan for existing users
 
-```
-Before V2 release:
-- README on master adds banner: "V2 rewrite in progress; see #<discussion>"
-- ROADMAP.md added with V2 timeline
+A `MIGRATION.md` document at the repo root walks users through the upgrade for each install path.
 
-V2 release (when shipped):
-- Single curl|sh installer:  curl -fsSL .../neon-installer.sh | sh
-- First run of neon setup auto-detects legacy bash install and cleans up
-- Cached Widevine at ~/.local/share/WidevineCdm/ migrated to ~/.cache/neon/widevine/<version>/
-- Old LaunchDaemon (root) replaced with new LaunchAgent (user)
-- Old systemd .path unit replaced with new systemd-user service
-- User notified via terminal output: "Migrated from legacy install. Run `neon doctor` to verify."
+### Per-install-path upgrade
 
-For users on the old DMG / Swift menu bar app:
-- README points them to the new installer
-- The new installer's setup phase removes the LaunchAgent registered by the old app
-- Old Neon.app left in /Applications until user manually deletes (we don't auto-remove user-installed apps)
+| Current install | V2 upgrade story | Manual action needed? |
+|---|---|---|
+| Manual `bash install.sh` | `curl \| sh` → V2 binary; `neon setup` auto-detects + removes old LaunchDaemon (Mac) or systemd `.path` (Linux); migrates `~/.local/share/WidevineCdm/` → `~/.cache/neon/widevine/<version>/` | None — fully automatic |
+| **Homebrew (V1 formula)** | `brew uninstall nicholasraimbault/neon/neon && brew untap nicholasraimbault/neon`; `curl \| sh`; `neon setup` migrates daemon + cache | Three commands, documented in MIGRATION.md |
+| Mac DMG users (Swift menu bar app) | `neon setup` detects + unloads `~/Library/LaunchAgents/com.neon.app.plist`; user manually deletes `/Applications/Neon.app` (we do not auto-delete user-installed apps) | Drag Neon.app to Trash |
+| Linux AUR (`neon-drm`) | `pacman -R neon-drm` (or `yay -R neon-drm`), then `curl \| sh` until V1.1 ships AUR for V2 | Uninstall AUR package |
+| Linux .deb (`neon-drm.deb`) | `dpkg -r neon-drm`, then `curl \| sh` | Uninstall .deb |
+
+### `neon setup` migration logic
+
 ```
+Detect and clean up legacy Neon installations:
+- /Library/LaunchDaemons/com.neon.fix-drm.plist            → unload + remove (with sudo)
+- /etc/systemd/system/neon-fix-drm.path                    → disable + remove
+- /etc/systemd/system/neon-fix-drm.service                 → remove
+- /usr/lib/neon/                                            → leave (system files; user removes manually if desired)
+- ~/Library/LaunchAgents/com.neon.app.plist                → unload + remove
+- ~/.config/autostart/neon.desktop                          → remove
+- ~/.local/share/WidevineCdm/                              → migrate to ~/.cache/neon/widevine/<version>/
+
+After migration, install V2 daemon, patch detected browsers, emit summary:
+"Migrated from legacy install. Run `neon doctor` to verify."
+```
+
+### `homebrew-neon` tap archival
+
+- Final commit on `homebrew-neon` repo: README points users to `curl | sh`; formula's `caveats` block deprecates the tap and shows the new install command.
+- Archive the repo via GitHub settings (read-only state, `[archived]` badge).
+- README.md on the main `neon` repo drops the `brew install` instruction; install section becomes single-line `curl | sh`.
+
+### Pre-V2 announcement
+
+- README on master adds a banner: "V2 rewrite in progress; tracking on `v2-rust-rewrite` branch."
+- ROADMAP.md added with V2 timeline.
+- A pinned issue (after re-enabling issues) announces V2 plans and links to the design spec for community input.
 
 ## Out of scope / future work
 
