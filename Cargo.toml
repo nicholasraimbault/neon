@@ -49,6 +49,27 @@ sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 # `target_env = "gnu"` (excludes musl), and nix has no macOS swap wrapper,
 # so the platform module calls libc directly.
 libc = "0.2"
+# Structured logging used by daemon lifecycle / power modules. Other teams
+# (cli, daemon) will plug in `tracing-subscriber` for the runtime; the
+# library-level `tracing::info!`/`warn!` calls are no-ops without a
+# subscriber installed.
+tracing = "0.1"
+
+# macOS-specific deps: ObjC FFI for NSWorkspace wake notifications.
+# `block2` is required because NSNotificationCenter takes a block-typed
+# handler argument; objc2-app-kit doesn't enable the dep transitively
+# under default features.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.5"
+objc2-foundation = "0.2"
+objc2-app-kit = "0.2"
+block2 = "0.5"
+
+# Linux-specific deps: zbus for systemd-logind PrepareForSleep signal.
+# Default features include async runtime integration we don't need; we use
+# only the blocking API on a dedicated background thread.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "4" }
 
 [dev-dependencies]
 # Sandboxed temporary directories for filesystem-shaped tests.
