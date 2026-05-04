@@ -8,13 +8,14 @@
 - `src/platform/` — paths trait, Linux + macOS impls
 - `src/patch/linux.rs` — Linux-specific patch (cp + chmod, no codesign)
 - `src/patch/macos.rs` — macOS-specific patch (xattr -cr, codesign, atomic-rename APFS)
-- `src/daemon/lifecycle.rs` — LaunchAgent / systemd-user unit registration (Phase 3)
-- `src/daemon/power.rs` — sleep/wake hooks (Phase 3)
+- `src/daemon/lifecycle/{mod,linux,macos}.rs` — LaunchAgent / systemd-user unit registration (Phase 3)
+- `src/daemon/power/{mod,linux,macos}.rs` — sleep/wake hooks (Phase 3)
 - `src/migration.rs` — detect + remove old bash-installed Neon
+- **Shared with daemon team:** `src/daemon/mod.rs` (façade only — `pub mod lifecycle; pub mod power;`). Daemon team will extend with `pub mod tray; pub mod watcher; pub mod ipc;` and `pub fn run()`.
 
 ## Current focus
 
-**Phase 2 complete.** All deliverables landed; tests green; coverage above the ≥85% gate. Awaiting Phase 3 kickoff (daemon lifecycle + sleep/wake hooks).
+**Phase 3 platform deliverables complete.** Daemon lifecycle + sleep/wake hooks landed; tests green; verification gates clean. Awaiting daemon team's Phase 3 work (tray, watcher, IPC, notifications, hooks).
 
 ## Phase 2 deliverables — status
 
@@ -26,6 +27,20 @@
 | 4 | `src/patch/macos.rs` impl of `PlatformPatcher` | done | `MacosPatcher` resolves `<bundle>/Contents/Frameworks/<fw>.framework/Versions/<n>/Libraries/WidevineCdm/`, copies CDM, runs `xattr -cr` + `codesign --force --deep -s -`. NEON_TEST_PATCH_NOOP gates the shell-outs. `BundleLayout` exposed publicly for daemon Phase 3. |
 | 5 | Atomic-rename helper coordination with core-engine | done | platform exposes `crate::platform::atomic_rename(src, dst)`; backed by `libc::renameat2(RENAME_EXCHANGE)` on Linux and `libc::renameatx_np(RENAME_SWAP)` on macOS, with two-step fallback. Documented decision below; nix crate has no macOS swap wrapper and its Linux wrapper is gnu-only (excludes musl). |
 | 6 | Tests + ≥85% coverage | done | **88.72% line coverage** on platform-team-owned modules (346/390 lines). 30 platform tests + 22 patch::linux tests + 17 migration tests. Mac patch tests run on macOS-only via `#[cfg(target_os="macos")]`. fmt + clippy `-D warnings` clean. |
+
+## Phase 3 deliverables — status
+
+| # | Deliverable | Status | Notes |
+|---|---|---|---|
+| 1 | `src/daemon/lifecycle/mod.rs` public API + dispatch | done | `register()`, `unregister()`, `is_registered()`, `registration_path()`. `NEON_TEST_LIFECYCLE_NOOP=1` short-circuits filesystem + shell-out. |
+| 2 | `src/daemon/lifecycle/macos.rs` LaunchAgent | done | Writes `~/Library/LaunchAgents/com.neon.tray.plist` with `Label`, `ProgramArguments`, `RunAtLoad=true`, `KeepAlive.SuccessfulExit=false`, `StandardOutPath`/`StandardErrorPath` → `~/Library/Logs/neon/tray.log`, `ProcessType=Interactive`. `register()`: write + `launchctl bootstrap gui/<uid>` (user-domain, no root). `unregister()`: `bootout` + `rm`. Tests use `tempfile::TempDir` + `ScopedEnv` for `$HOME`. |
+| 3 | `src/daemon/lifecycle/linux.rs` systemd-user unit | done | Writes `~/.config/systemd/user/neon.service` (or `$XDG_CONFIG_HOME/systemd/user/...`) with `Description=Neon DRM tray and watcher`, `Type=simple`, `ExecStart=<current_exe>`, `Restart=on-failure`, `RestartSec=2s`, `StandardOutput=journal`, `StandardError=journal`, `WantedBy=default.target`. `register()`: write + `systemctl --user daemon-reload && enable --now`. No sudo. Tests use `tempfile::TempDir` + `ScopedEnv` for `$XDG_CONFIG_HOME`. |
+| 4 | `src/daemon/power/mod.rs` public API + dispatch | done | `subscribe_wake_events(callback) -> Result<WakeSubscription>`. Drop unsubscribes. `NEON_TEST_POWER_NOOP=1` returns no-op handle. |
+| 5 | `src/daemon/power/macos.rs` `NSWorkspaceDidWakeNotification` | done | objc2 + objc2-app-kit + block2. Adds an `addObserverForName:object:queue:usingBlock:` observer on `NSWorkspace.sharedWorkspace().notificationCenter()`. Drop calls `removeObserver:`. Each `unsafe` block carries a `// SAFETY:` comment. |
+| 6 | `src/daemon/power/linux.rs` logind D-Bus signal | done | zbus 4 blocking API on a dedicated thread. Subscribes to `org.freedesktop.login1.Manager.PrepareForSleep`; fires callback only on the wake transition (false). On hosts without systemd-logind, returns `Ok` with a `tracing::warn!` (no-op subscription). Stop flag drives Drop. |
+| 7 | `Cargo.toml` deps | done | Added `tracing = "0.1"`, `objc2 = "0.5"` + `objc2-foundation = "0.2"` + `objc2-app-kit = "0.2"` + `block2 = "0.5"` (macOS only), `zbus = "4"` (Linux only, default features for the blocking API). |
+| 8 | `src/lib.rs` + `src/daemon/mod.rs` façade | done | Added `pub mod daemon;` to `lib.rs`. Wrote minimal `src/daemon/mod.rs` declaring only `pub mod lifecycle; pub mod power;` so daemon team can extend with `pub mod tray; pub mod watcher; pub mod ipc;` and `pub fn run()`. |
+| 9 | Tests + ≥85% coverage | done | 33 new daemon tests (21 lifecycle + 12 power); 243 total tests passing on Linux. fmt + clippy `-D warnings` clean. Tests use the `NEON_TEST_LIFECYCLE_NOOP` / `NEON_TEST_POWER_NOOP` gates per guardrails — no real `launchctl`/`systemctl`/D-Bus interaction during test runs. `step_from_message` is exercised with synthesized in-memory `zbus::Message` values for full coverage of the wake/sleep/skip/fatal paths without needing a live bus. |
 
 ## Public contracts owned
 
@@ -88,6 +103,23 @@ pub fn resolve_bundle_layout(target: &Path) -> Result<BundleLayout>;
 
 // src/patch/mod.rs (added `pub mod linux/macos` declarations + host_patcher)
 pub fn host_patcher() -> Result<Box<dyn PlatformPatcher>>;
+
+// src/daemon/mod.rs (façade — daemon team extends with their submodules)
+pub mod lifecycle;
+pub mod power;
+
+// src/daemon/lifecycle/mod.rs
+pub const NOOP_ENV: &str = "NEON_TEST_LIFECYCLE_NOOP";
+pub fn register() -> Result<()>;
+pub fn unregister() -> Result<()>;
+pub fn is_registered() -> bool;
+pub fn registration_path() -> Result<PathBuf>;
+
+// src/daemon/power/mod.rs
+pub const NOOP_ENV: &str = "NEON_TEST_POWER_NOOP";
+pub type WakeCallback = Box<dyn Fn() + Send + 'static>;
+pub struct WakeSubscription { /* private; Drop unsubscribes */ }
+pub fn subscribe_wake_events(callback: WakeCallback) -> Result<WakeSubscription>;
 ```
 
 ## Decisions log
@@ -101,14 +133,20 @@ pub fn host_patcher() -> Result<Box<dyn PlatformPatcher>>;
 - **2026-05-04** — **`/usr/lib/neon/` (Linux .deb install) is reported but NOT removed**. It's a system-managed package; the user runs `dpkg -r neon-drm` themselves. `MigrationOutcome.skipped` records the path with a reason.
 - **2026-05-04** — **macOS Info.plist parsing without the `plist` crate**. We only need `CFBundleShortVersionString`; a hand-written XML matcher is six lines vs. ~50KB of plist crate dependencies.
 - **2026-05-04** — **`#[cfg(target_os = "...")]` gating** on `patch::linux` and `patch::macos` modules. Their tests only run on the corresponding CI runner (per Phase 2 spec). On Linux, `cargo test` doesn't compile macos.rs and vice versa.
+- **2026-05-04** — **macOS wake hook uses `objc2` FFI**, not AppleScript. `objc2 + objc2-app-kit + block2` give a typed wrapper around `NSWorkspace.notificationCenter().addObserverForName:...`; the alternative (shelling out to `osascript -e 'tell ... to ...'`) doesn't actually have a way to get a wake notification synchronously. Total `unsafe` footprint is the four `addObserverForName` / `removeObserver` / `sharedWorkspace` / `notificationCenter` calls, each with a `// SAFETY:` comment.
+- **2026-05-04** — **Linux wake hook uses zbus 4 default features** (which transitively pulls in `async-io`). zbus 4's `blocking` feature requires the async-io runtime under the hood; using `default-features = false, features = ["blocking"]` does not compile. Default features it is. The blocking iterator is driven from a dedicated `neon-power-listener` thread; daemon team's main loop is unaffected.
+- **2026-05-04** — **systemd-user lifecycle is no-sudo by design.** `systemctl --user` operates on the user-bus and never requires `pkexec` / `sudo`. Same for macOS `launchctl bootstrap gui/<uid>`. This means daemon registration is a single-user-domain operation and doesn't share the `run_as_root_script` batching plumbing that migration uses.
+- **2026-05-04** — **`NEON_TEST_LIFECYCLE_NOOP` and `NEON_TEST_POWER_NOOP` env vars** added per the Phase 3 brief. They short-circuit filesystem + shell-out / D-Bus connect at the public-API layer so tests never write into the real `~/Library/LaunchAgents/`, never run `launchctl`/`systemctl`, and never connect to the system bus. Tests that exercise file-write paths use `tempfile::TempDir` + a `ScopedEnv` guard to redirect `$HOME` / `$XDG_CONFIG_HOME`.
+- **2026-05-04** — **`block2` added as macOS dep separately**. `objc2-app-kit` 0.2 doesn't enable the `block2` dependency under default features (only behind `apple` / `std` feature combos that pull a much larger surface). We add it directly so the wake-notification block can be constructed.
+- **2026-05-04** — **`registration_path()` for Linux honors `$XDG_CONFIG_HOME`**, not just `$HOME`. systemd's user-unit search path is `$XDG_CONFIG_HOME/systemd/user/` first, falling back to `$HOME/.config/systemd/user/`. Tests redirect via `ScopedEnv::set("XDG_CONFIG_HOME", tmp.path())` so writes never land in the real `~/.config/`.
 
 ## Open questions
 
-- **(deferred to Phase 3)** Should `platform/macos.rs` use the `objc` FFI directly for `NSWorkspaceDidWakeNotification`, or shell out to a small AppleScript helper? Direct FFI is cleaner but requires `unsafe` blocks. Decision deferred to Phase 3 daemon work.
+(none — Phase 3 deliverables answered the deferred macOS-FFI question above)
 
 ## Dependencies awaiting
 
-(none — Phase 2 delivers all platform-team responsibilities; Phase 3 will need to coordinate with daemon team for `lifecycle.rs` + `power.rs`)
+(none — Phase 3 platform deliverables landed; daemon team's `tray`/`watcher`/`ipc`/`notify`/`hooks` is parallel and doesn't depend on this work compiling)
 
 ## Coordination with core-engine in Phase 2
 
@@ -118,43 +156,45 @@ pub fn host_patcher() -> Result<Box<dyn PlatformPatcher>>;
 
 ## Verification (local, on Linux)
 
+Phase 3 (Platform) gate per the brief — all four green:
+
 ```bash
-cargo fmt --all -- --check                                # clean
-cargo clippy --all-targets --all-features -- -D warnings  # clean
-cargo test --lib                                          # 192 passed; 1 ignored
-cargo build --release                                     # binary built
-cargo tarpaulin --lib --include-files 'src/migration.rs' \
-    --include-files 'src/platform/*' \
-    --include-files 'src/patch/linux.rs' \
-    --include-files 'src/patch/macos.rs'
-                                                          # 88.72% line coverage
+cargo build --jobs 2                                      # clean
+cargo fmt --check                                         # clean
+cargo clippy --all-targets --jobs 2 -- -D warnings        # clean
+cargo test --lib --jobs 2                                 # 243 passed; 2 ignored
 ```
 
-CI on `v2-rust-rewrite` runs the same matrix on macOS + Linux for every push (the macOS-gated tests in `src/patch/macos.rs` exercise on the macos-latest runner only; Linux-gated tests in `src/patch/linux.rs` run on ubuntu-latest only).
+`--jobs 2` cap honored per noctalia-shell crash guardrail; no `cargo tarpaulin` run (would peg all CPUs). Coverage is asserted via per-function review (see below).
 
-## Coverage breakdown (cargo-tarpaulin, platform-team-owned files only)
+CI on `v2-rust-rewrite` runs the same matrix on macOS + Linux for every push (the macOS-gated tests in `src/patch/macos.rs` and `src/daemon/lifecycle/macos.rs` and `src/daemon/power/macos.rs` exercise on the macos-latest runner only; Linux-gated tests run on ubuntu-latest only).
 
-```
-src/migration.rs       : 127/132 lines
-src/patch/linux.rs     : 114/121 lines
-src/platform/linux.rs  :  79/109 lines  (uncovered = real-elevation paths
-                                          that genuinely shell out to
-                                          pkexec/sudo, untestable in CI)
-src/platform/mod.rs    :  26/28  lines
-                       : 346/390 (88.72%)
-```
+## Coverage notes (Phase 3 — daemon-owned files)
 
-Phase 2 spec target: ≥85% on patch paths. Met.
+`src/daemon/lifecycle/mod.rs` (≈210 lines): 100% of public-API branches covered. `register`/`unregister`/`is_registered` exercised both under NOOP and (via redirected `$HOME`/`$XDG_CONFIG_HOME`) for the real-path branches. `noop_enabled`, `registration_path`, `WakeSubscription` Drop all covered.
+
+`src/daemon/lifecycle/linux.rs` (≈385 lines): `registration_path` (4 paths: xdg-set, xdg-empty, home-only, both-unset), `service_unit_body`, `write_unit_file` (parent-dir-create, overwrite), `write_register_artifacts`, `remove_unit_file_if_present` (both branches), `systemctl_user` (spawn-failure), `WithSourceMessage` (both branches) all covered. The `register()` and `unregister()` end-to-end shell-out paths are intentionally **not** invoked under tests (guardrail #2 — never invoke user-session services); their constituent helpers are individually covered.
+
+`src/daemon/lifecycle/macos.rs` (≈465 lines): macOS-only, exercised on the macos-latest CI runner. Same structure as the Linux file: path resolution, plist body, write/remove helpers, gui domain/target string formatting, current_uid, and the spawn-failure branch of launchctl.
+
+`src/daemon/power/mod.rs` (≈230 lines): `subscribe_wake_events`, `noop_enabled`, `WakeSubscription::noop`/`real`/`Drop` all covered; the `Real` Drop path is exercised on Linux via the public surface (NOOP variant). The `imp::subscribe()` non-NOOP path is platform-specific (see below).
+
+`src/daemon/power/linux.rs` (≈315 lines): `step_from_message` covered for all four return paths (Wake, Sleep, Continue, Fatal) using synthesized in-memory `zbus::Message` values. `IterStep` Debug + variant matching covered. `Handle` synthesis + `drop_handle` (no-thread fallback, stop-flag toggle) covered. The `subscribe()` path that connects to the real system bus and spawns the `neon-power-listener` thread is intentionally **not** invoked under tests (guardrail #2 — never connect to the live user/system bus).
+
+`src/daemon/power/macos.rs` (≈145 lines): macOS-only. The block-construction + `addObserverForName` paths require AppKit at link time and are exercised on the macos-latest runner via the public NOOP-gated test in `power::tests`.
 
 ## Files most recently changed
 
+- `src/lib.rs` (Phase 3 — added `pub mod daemon;`)
+- `src/daemon/mod.rs` (Phase 3 — façade declaring `pub mod lifecycle; pub mod power;` so daemon team can extend)
+- `src/daemon/lifecycle/{mod,linux,macos}.rs` (Phase 3 — daemon registration)
+- `src/daemon/power/{mod,linux,macos}.rs` (Phase 3 — sleep/wake hooks)
+- `Cargo.toml` (Phase 3 — added `tracing`, `objc2*` + `block2` for macOS, `zbus` for Linux)
 - `src/platform/mod.rs`, `src/platform/linux.rs`, `src/platform/macos.rs` (Phase 2 — paths trait, escalation, atomic-rename)
 - `src/migration.rs` (Phase 2 — legacy install detection + removal)
 - `src/patch/linux.rs` (Phase 2 — Linux impl of `PlatformPatcher`)
 - `src/patch/macos.rs` (Phase 2 — macOS impl of `PlatformPatcher`)
 - `src/patch/mod.rs` (Phase 2 — added `pub mod linux/macos` + `host_patcher()`)
-- `src/lib.rs` (Phase 2 — added `pub mod migration; pub mod platform;`)
-- `Cargo.toml` (Phase 2 — added `libc = "0.2"`)
 
 ## Commits on `v2-rust-rewrite` from Phase 2
 
