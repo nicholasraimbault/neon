@@ -758,4 +758,48 @@ mod tests {
         let e2 = Error::other("").with_path_context("ctx".into());
         assert_eq!(e2.message, "ctx");
     }
+
+    /// `detect_legacy_install()` (public host-tied entry) must not panic
+    /// regardless of host state. On a dev machine with no legacy install,
+    /// it returns an empty list; on a machine with legacy artifacts, it
+    /// returns whatever's there. Either way: no panic.
+    #[test]
+    fn detect_legacy_install_does_not_panic() {
+        let _ = detect_legacy_install();
+    }
+
+    /// `remove_legacy(empty)` succeeds with no work. Useful sanity check
+    /// for callers that always run migration regardless of detection.
+    #[test]
+    fn remove_legacy_empty_install_is_noop() {
+        let outcome = remove_legacy(LegacyInstall::default()).expect("ok");
+        assert!(outcome.removed.is_empty());
+        assert!(outcome.migrated.is_empty());
+        assert!(outcome.skipped.is_empty());
+    }
+
+    /// `migrate_legacy_cdm` returns an error when `rename` fails (here,
+    /// because the source doesn't exist).
+    #[test]
+    fn migrate_legacy_cdm_errors_when_source_missing() {
+        let tmp = TempDir::new().unwrap();
+        let legacy = tmp.path().join("not-here");
+        let dest = tmp.path().join("dest/widevine");
+        let mut out = MigrationOutcome::default();
+        let r = migrate_legacy_cdm(&legacy, &dest, &mut out);
+        assert!(r.is_err());
+    }
+
+    /// `unload_and_remove_user` removes a plist successfully even when
+    /// `launchctl` isn't available (common on Linux CI runners).
+    #[test]
+    fn unload_and_remove_user_removes_plist() {
+        let tmp = TempDir::new().unwrap();
+        let plist = tmp.path().join("com.example.plist");
+        fs::write(&plist, b"<plist></plist>").unwrap();
+        let mut out = MigrationOutcome::default();
+        unload_and_remove_user(&plist, &mut out).expect("ok");
+        assert!(!plist.exists());
+        assert_eq!(out.removed.len(), 1);
+    }
 }

@@ -178,11 +178,13 @@ pub fn escalate_for_patch(target: &std::path::Path) -> Result<()> {
 /// "successful" [`Output`] with empty stdout/stderr without spawning a
 /// subprocess.
 pub fn run_as_root(command: &[&str]) -> Result<Output> {
-    if std::env::var_os("NEON_TEST_ESCALATE_NOOP").is_some() {
-        return Ok(noop_output());
-    }
+    // Precondition: reject empty command before considering test-mode
+    // short-circuiting. Empty argv is always a programmer error.
     if command.is_empty() {
         return Err(Error::other("run_as_root called with empty command"));
+    }
+    if std::env::var_os("NEON_TEST_ESCALATE_NOOP").is_some() {
+        return Ok(noop_output());
     }
     imp::run_as_root(command)
 }
