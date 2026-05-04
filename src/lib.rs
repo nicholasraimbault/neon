@@ -36,6 +36,7 @@
 
 pub mod browsers;
 pub mod config;
+pub mod daemon;
 pub mod error;
 pub mod lockfile;
 pub mod migration;
