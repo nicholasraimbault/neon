@@ -35,6 +35,12 @@ allow = [
     "Zlib",
     "MPL-2.0",
     "CC0-1.0",
+    # Mozilla's webpki-roots (transitive via reqwest + rustls-tls) ships
+    # under CDLA-Permissive-2.0. The spec mandates rustls-tls, so this
+    # transitive dep is unavoidable and the license is permissive enough
+    # for our use (no copyleft, no patent retaliation).
+    # https://cdla.dev/permissive-2-0/
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.93
 exceptions = []
