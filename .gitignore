@@ -1,6 +1,35 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# Cargo.lock is committed for binaries (this project)
+
+# Environment
+.env
+.env.local
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# V1 leftovers (keep paths excluded from new V2 builds)
 build/
 packaging/deb/neon-drm_*
 packaging/deb/neon-tray
-.DS_Store
-.idea
-.env
+
+# Coverage reports
+cobertura.xml
+tarpaulin-report.html
+lcov.info
+
+# cargo-dist staging
+dist/
+
+# Local dev caches
+.cache/
