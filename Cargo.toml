@@ -1,0 +1,58 @@
+[package]
+name = "neon"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["Nicholas Raimbault <nraimbault16@gmail.com>"]
+license = "MIT"
+description = "Single-binary cross-platform DRM (Widevine) helper for Chromium-family browsers"
+repository = "https://github.com/nicholasraimbault/neon"
+homepage = "https://github.com/nicholasraimbault/neon"
+readme = "README.md"
+keywords = ["drm", "widevine", "chromium", "helium", "thorium"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "neon"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive", "env"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+
+[profile.dev]
+debug = 1
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+# Config for 'dist'
+[workspace.metadata.dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.22.1"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-musl",
+]
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+# Whether to install an updater program
+install-updater = false
+# Publish jobs to run in CI
+pr-run-mode = "plan"
+# Sign artifacts using zipsign for self_update verification
+ssldotcom-windows-sign = "prod"
