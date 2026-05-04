@@ -2,17 +2,18 @@
 
 **Lead:** Claude (main session)
 **Team:** `neon-v2`
-**Active phase:** Phase 2 — Widevine + atomic patching (closing out)
+**Active phase:** Phase 3 — Daemon + tray + watcher
 
 ## Current focus
 
-Phase 2 nearly complete:
-- **platform team: done** (5 commits, 88.72% coverage on owned modules, handoff doc updated)
-- **core-engine team: commits landed, awaiting handoff doc update + completion message** — sent them a status-check ping
+Phase 3 starting: daemon team (first activation) + platform team (returning) in parallel.
+- daemon: tray icon, file watcher, IPC, native notifications, heartbeat, CDM integrity check, hooks runner
+- platform: LaunchAgent / systemd-user lifecycle, sleep/wake hooks (NSWorkspace + logind D-Bus)
 
-210 tests passing locally; fmt + clippy clean across the workspace.
-
-Phase 1 complete (78+ unit/integration tests, 95.38% coverage on Phase 1 modules). MSRV bumped 1.75→1.85.
+Phase 2 complete:
+- core-engine: 87.02% coverage on Phase 2 deliverables, 89.93% overall on owned modules
+- platform: 88.72% coverage on owned modules
+- 210 unit tests + 2 integration tests passing; fmt + clippy clean
 
 ## Decisions made (recorded for handoff)
 
@@ -27,7 +28,8 @@ Phase 1 complete (78+ unit/integration tests, 95.38% coverage on Phase 1 modules
 |---|---|---|
 | 0 — Foundation | **Done** | 6 commits; infra agent reports complete; verified locally (build + fmt + clippy green) |
 | 1 — Core skeleton | **Done** | 8 commits; manifest, browsers, config, error, lockfile shipped; 95.38% coverage on owned modules |
-| 2 — Widevine + patching | In progress | core-engine + platform (parallel) |
+| 2 — Widevine + patching | **Done** | core-engine 87% / platform 88.7% coverage; 210 tests passing |
+| 3 — Daemon + tray + watcher | In progress | daemon (first activation) + platform (returning) |
 | 3 — Daemon | Pending | daemon + platform (parallel) |
 | 4 — CLI completion | Pending | cli sequential |
 | 5 — Distribution + docs | Pending | infra + platform |
