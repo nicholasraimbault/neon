@@ -526,4 +526,56 @@ mod tests {
             assert_eq!(v.as_deref(), Some("hello world"));
         }
     }
+
+    /// `read_chromium_version_file` returns `None` when the file is empty
+    /// or contains no `KEY=value` lines.
+    #[test]
+    fn read_chromium_version_file_returns_none_on_empty_input() {
+        let tmp = TempDir::new().unwrap();
+        let p = tmp.path().join("VERSION");
+        fs::write(&p, "").unwrap();
+        assert!(read_chromium_version_file(&p).is_none());
+        // No `=` lines.
+        fs::write(&p, "garbage\nno-equals\n").unwrap();
+        assert!(read_chromium_version_file(&p).is_none());
+    }
+
+    /// `is_executable` returns `false` for non-executable files.
+    #[test]
+    fn is_executable_returns_false_for_data_files() {
+        let tmp = TempDir::new().unwrap();
+        let f = tmp.path().join("data");
+        fs::write(&f, b"x").unwrap();
+        // Default permissions on a freshly-written file are 0644 (or
+        // umask-adjusted), which has no execute bits.
+        assert!(!is_executable(&f));
+    }
+
+    /// `set_permissions` errors when the path doesn't exist.
+    #[test]
+    fn set_permissions_errors_on_missing_path() {
+        let tmp = TempDir::new().unwrap();
+        let r = set_permissions(&tmp.path().join("nope"), 0o644);
+        assert!(r.is_err());
+    }
+
+    /// `context_err` adds context to a non-empty message.
+    #[test]
+    fn context_err_appends_when_inner_message_present() {
+        let io_err = std::io::Error::other("inner");
+        let err = context_err(io_err, "ctx".into());
+        assert_eq!(err.message, "ctx: inner");
+    }
+
+    /// `run_with_timeout` returns `None` when the binary takes longer
+    /// than the timeout (verified against a `sleep` invocation).
+    #[test]
+    fn run_with_timeout_returns_none_on_timeout() {
+        let sleep = std::path::Path::new("/bin/sleep");
+        if sleep.exists() {
+            // Ask for 5 seconds, give a 100ms budget.
+            let v = run_with_timeout(sleep, &["5"], Duration::from_millis(100));
+            assert_eq!(v, None);
+        }
+    }
 }

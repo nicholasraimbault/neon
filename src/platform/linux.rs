@@ -457,4 +457,88 @@ mod tests {
             Err(ExchangeError::Other(e)) => panic!("unexpected error: {e}"),
         }
     }
+
+    /// `spawn_with_elevator` directly: substitute `/bin/echo` for the
+    /// elevator. This exercises the `Command::output` path without
+    /// actually elevating. We pass a command argv that echo will print
+    /// back; the captured stdout is the joined argv.
+    #[test]
+    fn spawn_with_elevator_runs_command_and_captures_output() {
+        let out = spawn_with_elevator("echo", &["hi", "there"]).expect("ok");
+        assert!(out.status.success());
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains("hi there"));
+    }
+
+    /// `spawn_with_elevator` with a binary that doesn't exist returns an
+    /// error (the spawn itself fails).
+    #[test]
+    fn spawn_with_elevator_errors_on_missing_binary() {
+        let r = spawn_with_elevator("/nonexistent/elevator-binary", &["echo"]);
+        assert!(r.is_err(), "spawn must fail for missing binary");
+    }
+
+    /// `exchange_renameat2` returns `Other` with the underlying io error
+    /// when src doesn't exist (`ENOENT`).
+    #[test]
+    fn exchange_renameat2_errors_on_missing_src() {
+        let tmp = TempDir::new().expect("tempdir");
+        let nonexistent = tmp.path().join("nope");
+        let dst = tmp.path().join("dst");
+        fs::write(&dst, b"x").unwrap();
+        let r = exchange_renameat2(&nonexistent, &dst);
+        // ENOENT is `Other`, not `InvalidArgument`.
+        assert!(matches!(r, Err(ExchangeError::Other(_))));
+    }
+
+    /// `ExchangeError::is_invalid_argument` and `into_error` round-trip.
+    #[test]
+    fn exchange_error_into_error_carries_path_context() {
+        let e = ExchangeError::InvalidArgument;
+        assert!(e.is_invalid_argument());
+        let err = e.into_error(std::path::Path::new("/x"), std::path::Path::new("/y"));
+        assert!(err.message.contains("atomic_rename"));
+        assert!(err.message.contains("/x"));
+        assert!(err.message.contains("/y"));
+    }
+
+    /// `escalate_for_patch` returns `Ok(())` when `NEON_TEST_ESCALATE_NOOP`
+    /// short-circuits. The public entry point in `mod.rs` already
+    /// covers this; we additionally exercise the inner path so coverage
+    /// includes the line where the platform-specific impl is reached.
+    #[test]
+    fn escalate_for_patch_returns_ok_under_noop() {
+        // SAFETY: env mutation in serial test; restored at end.
+        unsafe { std::env::set_var("NEON_TEST_ESCALATE_NOOP", "1") };
+        let r = crate::platform::escalate_for_patch(std::path::Path::new("/opt/whatever"));
+        assert!(r.is_ok());
+        unsafe { std::env::remove_var("NEON_TEST_ESCALATE_NOOP") };
+    }
+
+    /// `io_invalid` constructs an InvalidInput-kind io error from a
+    /// `NulError`. Exercised via a path containing a NUL byte (which
+    /// gets caught at `CString::new` time).
+    #[test]
+    fn io_invalid_constructs_invalid_input_kind() {
+        // Construct a NulError by feeding `CString::new` a string with
+        // an interior NUL.
+        let nul_err = std::ffi::CString::new("a\0b").unwrap_err();
+        let io_err = super::io_invalid(nul_err);
+        assert_eq!(io_err.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    /// `remove_path` removes both files and directories.
+    #[test]
+    fn remove_path_handles_files_and_dirs() {
+        let tmp = TempDir::new().expect("tempdir");
+        let f = tmp.path().join("file");
+        fs::write(&f, b"x").unwrap();
+        super::remove_path(&f).expect("remove file ok");
+        assert!(!f.exists());
+        let d = tmp.path().join("d");
+        fs::create_dir_all(d.join("nested")).unwrap();
+        fs::write(d.join("nested/x"), b"x").unwrap();
+        super::remove_path(&d).expect("remove dir ok");
+        assert!(!d.exists());
+    }
 }
