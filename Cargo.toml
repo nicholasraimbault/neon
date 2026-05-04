@@ -2,7 +2,7 @@
 name = "neon"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.85"
 authors = ["Nicholas Raimbault <nraimbault16@gmail.com>"]
 license = "MIT"
 description = "Single-binary cross-platform DRM (Widevine) helper for Chromium-family browsers"
