@@ -54,6 +54,32 @@ libc = "0.2"
 # library-level `tracing::info!`/`warn!` calls are no-ops without a
 # subscriber installed.
 tracing = "0.1"
+# Tracing subscriber — the daemon::run() entry point installs this so the
+# tracing!/warn!/info! calls scattered throughout the crate produce
+# structured stderr output during a tray run.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
+# Native desktop notifications (notify-rust → libnotify on Linux,
+# mac-notification-sys on macOS). macOS lacks action-button support
+# (verified upstream limitation); we feature-gate any action-button code
+# with `#[cfg(target_os = "linux")]`.
+notify-rust = "4"
+# Cross-platform filesystem watcher. Driven by inotify on Linux and
+# FSEvents on macOS under the hood. We use the synchronous `Watcher`
+# trait API; debouncing is done at our layer so we have full control of
+# the per-browser dispatch.
+notify = "8"
+# Tray icon UI. Tauri's tray-icon crate uses GTK + libayatana-appindicator
+# at runtime on Linux and Cocoa NSStatusItem on macOS. We document the
+# Linux runtime dep in the README and fall back to --no-tray if the
+# library isn't available at startup.
+#
+# `libxdo` (default feature) wraps libxdo-dev for keyboard-shortcut
+# simulation in menu accelerators. We don't use accelerators, so we
+# disable the default features and re-add `gtk` (transitively required
+# for the GTK/libayatana-appindicator backend on Linux). This keeps the
+# musl static-build story clean and removes a system C library
+# dependency that's not installed on minimal distros.
+tray-icon = { version = "0.23", default-features = false }
 
 # macOS-specific deps: ObjC FFI for NSWorkspace wake notifications.
 # `block2` is required because NSNotificationCenter takes a block-typed
