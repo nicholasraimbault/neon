@@ -87,10 +87,13 @@ pub enum TrayCommand {
     #[cfg(feature = "experimental-bridge")]
     BridgeResume,
     /// User clicked "Bridge ▶ Repair". Daemon invokes
-    /// `cli::stream::repair::run` (V3-Phase F; placeholder log message
-    /// for V3-Phase D).
+    /// `cli::stream::repair::run` with `--auto`.
     #[cfg(feature = "experimental-bridge")]
     BridgeRepair,
+    /// User clicked the eval-expiring rearm tray item. Daemon shows the
+    /// PowerShell rearm command via a notification.
+    #[cfg(feature = "experimental-bridge")]
+    BridgeRearm,
 }
 
 /// Pure-data description of one menu entry. Used by the construction
@@ -224,6 +227,34 @@ pub struct BridgeMenuState {
     pub eval_days_remaining: Option<i64>,
 }
 
+#[cfg(feature = "experimental-bridge")]
+impl BridgeMenuState {
+    /// `true` when the user should see an alert badge — eval expiring
+    /// within 7 days, snapshot >30 days old, or VM continuously paused
+    /// for >24 hours.
+    #[must_use]
+    pub fn needs_attention(&self) -> bool {
+        if let Some(days) = self.eval_days_remaining {
+            if days < 7 {
+                return true;
+            }
+        }
+        if let Some(hours) = self.snapshot_age_hours {
+            if hours / 24 > 30 {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// `true` when the eval-expiry rearm-prompt should appear in the
+    /// top-level menu (not just the submenu).
+    #[must_use]
+    pub fn eval_expiry_visible(&self) -> bool {
+        self.eval_days_remaining.is_some_and(|d| d < 7)
+    }
+}
+
 /// Per-browser menu line state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BrowserMenuEntry {
@@ -323,6 +354,23 @@ pub fn menu_layout(state: &MenuState) -> Vec<MenuItemSpec> {
 #[cfg(feature = "experimental-bridge")]
 fn inject_bridge_items(out: &mut Vec<MenuItemSpec>, bridge: &BridgeMenuState) {
     out.push(MenuItemSpec::Separator);
+
+    // V3-Phase F: surface eval-expiry alert at the top level so the
+    // user can rearm without drilling into the submenu.
+    if bridge.eval_expiry_visible() {
+        if let Some(days) = bridge.eval_days_remaining {
+            let label = if days >= 0 {
+                format!("⚠ Eval: {days} days remaining")
+            } else {
+                format!("⚠ Eval expired ({} days ago)", -days)
+            };
+            out.push(MenuItemSpec::Action {
+                label,
+                command: TrayCommand::BridgeRearm,
+            });
+        }
+    }
+
     out.push(MenuItemSpec::Action {
         label: "Stream Netflix".into(),
         command: TrayCommand::StreamUrl("https://netflix.com".into()),
@@ -337,15 +385,14 @@ fn inject_bridge_items(out: &mut Vec<MenuItemSpec>, bridge: &BridgeMenuState) {
     });
     out.push(MenuItemSpec::Action {
         label: "Stream… (custom URL)".into(),
-        // V3-Phase F adds a real "open custom URL" prompt; for now this
-        // emits a sentinel `StreamUrl("")` that the daemon's dispatch
-        // handler interprets as "open the prompt" (and currently logs
-        // a TODO).
+        // V3-Phase F: empty URL is a sentinel for "open prompt" — the
+        // daemon's dispatch handler currently logs a TODO and emits a
+        // notification pointing the user at the CLI.
         command: TrayCommand::StreamUrl(String::new()),
     });
     out.push(MenuItemSpec::Separator);
 
-    // Bridge submenu.
+    // Bridge submenu. V3-Phase F adds an alert badge when needs_attention.
     let mut sub = Vec::with_capacity(6);
     sub.push(MenuItemSpec::Label {
         text: bridge_status_label(bridge),
@@ -366,16 +413,23 @@ fn inject_bridge_items(out: &mut Vec<MenuItemSpec>, bridge: &BridgeMenuState) {
         sub.push(MenuItemSpec::Label {
             text: eval_days_label(days),
         });
+        // V3-Phase F: rearm action lives inside submenu too.
+        sub.push(MenuItemSpec::Action {
+            label: "Rearm trial".into(),
+            command: TrayCommand::BridgeRearm,
+        });
     }
     if let Some(hours) = bridge.snapshot_age_hours {
         sub.push(MenuItemSpec::Label {
             text: snapshot_age_label(hours),
         });
     }
-    out.push(MenuItemSpec::Submenu {
-        label: "Bridge ▶".into(),
-        items: sub,
-    });
+    let label = if bridge.needs_attention() {
+        "⚠ Bridge ▶".to_string()
+    } else {
+        "Bridge ▶".to_string()
+    };
+    out.push(MenuItemSpec::Submenu { label, items: sub });
 }
 
 /// Render the Bridge submenu's "Status: ..." header label.
@@ -1179,7 +1233,7 @@ mod tests_v3 {
     }
 
     /// `eval_days_remaining = Some(N)` adds the eval label inside the
-    /// Bridge submenu.
+    /// Bridge submenu. V3-Phase F: also adds a "Rearm trial" action.
     #[test]
     fn bridge_submenu_includes_eval_indicator_when_on_trial() {
         let state = empty_state(BridgeMenuState {
@@ -1189,10 +1243,16 @@ mod tests_v3 {
             eval_days_remaining: Some(82),
         });
         let layout = menu_layout(&state);
-        match &layout[8] {
+        // 82 days > 7-day threshold → no top-level rearm prompt; submenu
+        // is at index 8 still.
+        let bridge_idx = layout
+            .iter()
+            .position(|i| matches!(i, MenuItemSpec::Submenu { .. }))
+            .expect("submenu exists");
+        match &layout[bridge_idx] {
             MenuItemSpec::Submenu { items, .. } => {
-                // 4 default + 1 eval = 5
-                assert_eq!(items.len(), 5);
+                // V3-Phase F: 4 default + 1 eval label + 1 rearm action = 6.
+                assert_eq!(items.len(), 6);
                 let eval_label = items
                     .iter()
                     .find_map(|i| match i {
@@ -1201,12 +1261,24 @@ mod tests_v3 {
                     })
                     .expect("eval label present");
                 assert!(eval_label.contains("82"), "got {eval_label:?}");
+                // Rearm action present.
+                let saw_rearm = items.iter().any(|i| {
+                    matches!(
+                        i,
+                        MenuItemSpec::Action {
+                            command: TrayCommand::BridgeRearm,
+                            ..
+                        }
+                    )
+                });
+                assert!(saw_rearm, "Rearm trial action missing in submenu");
             }
             other => panic!("expected Submenu, got {other:?}"),
         }
     }
 
-    /// Negative eval days renders as "expired".
+    /// Negative eval days renders as "expired" + surfaces a top-level
+    /// alert badge.
     #[test]
     fn bridge_submenu_eval_label_marks_expired() {
         let state = empty_state(BridgeMenuState {
@@ -1216,19 +1288,99 @@ mod tests_v3 {
             eval_days_remaining: Some(-7),
         });
         let layout = menu_layout(&state);
-        if let MenuItemSpec::Submenu { items, .. } = &layout[8] {
-            let eval_label = items
-                .iter()
-                .find_map(|i| match i {
-                    MenuItemSpec::Label { text } if text.contains("Eval") => Some(text),
-                    _ => None,
-                })
-                .expect("eval label present");
-            assert!(
-                eval_label.contains("expired") && eval_label.contains('7'),
-                "got {eval_label:?}"
-            );
-        }
+        // V3-Phase F: -7 days < 7 → top-level alert badge appears.
+        let saw_top_rearm = layout.iter().any(|i| {
+            matches!(
+                i,
+                MenuItemSpec::Action {
+                    command: TrayCommand::BridgeRearm,
+                    ..
+                }
+            )
+        });
+        assert!(saw_top_rearm, "expected top-level rearm alert badge");
+        // Submenu's eval label still says "expired (7 days)".
+        let bridge = layout
+            .iter()
+            .find_map(|i| match i {
+                MenuItemSpec::Submenu { items, .. } => Some(items),
+                _ => None,
+            })
+            .expect("submenu exists");
+        let eval_label = bridge
+            .iter()
+            .find_map(|i| match i {
+                MenuItemSpec::Label { text } if text.contains("Eval") => Some(text),
+                _ => None,
+            })
+            .expect("eval label present");
+        assert!(
+            eval_label.contains("expired") && eval_label.contains('7'),
+            "got {eval_label:?}"
+        );
+    }
+
+    /// V3-Phase F: `needs_attention` flips the submenu label to "⚠ Bridge ▶".
+    #[test]
+    fn submenu_label_shows_alert_badge_when_attention_needed() {
+        let state = empty_state(BridgeMenuState {
+            ready: true,
+            paused: false,
+            snapshot_age_hours: None,
+            eval_days_remaining: Some(2),
+        });
+        let layout = menu_layout(&state);
+        let bridge_label = layout
+            .iter()
+            .find_map(|i| match i {
+                MenuItemSpec::Submenu { label, .. } => Some(label.clone()),
+                _ => None,
+            })
+            .expect("submenu");
+        assert!(
+            bridge_label.contains('⚠'),
+            "expected alert glyph in submenu label; got {bridge_label:?}"
+        );
+    }
+
+    /// V3-Phase F: `eval_expiry_visible` returns true only when < 7 days.
+    #[test]
+    fn eval_expiry_visible_flips_at_7_day_threshold() {
+        let healthy = BridgeMenuState {
+            eval_days_remaining: Some(8),
+            ..BridgeMenuState::default()
+        };
+        assert!(!healthy.eval_expiry_visible());
+        let warn = BridgeMenuState {
+            eval_days_remaining: Some(6),
+            ..BridgeMenuState::default()
+        };
+        assert!(warn.eval_expiry_visible());
+        let none = BridgeMenuState {
+            eval_days_remaining: None,
+            ..BridgeMenuState::default()
+        };
+        assert!(!none.eval_expiry_visible());
+    }
+
+    /// V3-Phase F: `needs_attention` returns true for stale snapshots
+    /// and expiring evals.
+    #[test]
+    fn needs_attention_flags_stale_and_expiring() {
+        let healthy = BridgeMenuState::default();
+        assert!(!healthy.needs_attention());
+
+        let expiring_eval = BridgeMenuState {
+            eval_days_remaining: Some(2),
+            ..BridgeMenuState::default()
+        };
+        assert!(expiring_eval.needs_attention());
+
+        let stale_snap = BridgeMenuState {
+            snapshot_age_hours: Some(40 * 24),
+            ..BridgeMenuState::default()
+        };
+        assert!(stale_snap.needs_attention());
     }
 
     /// `snapshot_age_hours = Some(48)` adds a "2d" snapshot label.
