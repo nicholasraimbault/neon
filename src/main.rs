@@ -38,6 +38,16 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
 
+    /// Internal: signal that this Neon process is the privileged child
+    /// of an earlier escalation (`pkexec` / `sudo` / `osascript`). The
+    /// patch flow uses this flag to (a) skip a second escalation attempt
+    /// and (b) place its rollback snapshot in a same-filesystem sibling
+    /// directory of the install path so atomic-swap rollback works
+    /// (cross-filesystem `renameat2(RENAME_EXCHANGE)` returns `EXDEV`).
+    /// Hidden from the help output — end users should never set this.
+    #[arg(long, global = true, hide = true)]
+    as_root: bool,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -284,7 +294,7 @@ fn main() -> ExitCode {
     let result: neon::Result<()> = match cli.command {
         // No subcommand → run the tray daemon (default).
         None => neon::daemon::run(),
-        Some(cmd) => dispatch(cmd, output),
+        Some(cmd) => dispatch(cmd, output, cli.as_root),
     };
 
     match result {
@@ -297,7 +307,7 @@ fn main() -> ExitCode {
 }
 
 /// Dispatch a parsed subcommand to its `cli::<name>::run` impl.
-fn dispatch(cmd: Command, output: cli::OutputOptions) -> neon::Result<()> {
+fn dispatch(cmd: Command, output: cli::OutputOptions, as_root: bool) -> neon::Result<()> {
     match cmd {
         Command::Init => cli::init::run(&cli::init::Args { output }),
         Command::Setup {
@@ -318,6 +328,7 @@ fn dispatch(cmd: Command, output: cli::OutputOptions) -> neon::Result<()> {
             force,
             dry_run,
             browser,
+            as_root,
             output,
         }),
         Command::Status { watch } => cli::status::run(&cli::status::Args { watch, output }),

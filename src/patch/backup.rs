@@ -218,6 +218,40 @@ pub fn snapshot_for_browser(browser: &Browser, version: Option<&str>) -> Result<
     snapshot_into(browser.install_path(), &backups, browser.name(), version)
 }
 
+/// Take a snapshot in a sibling directory of `install_path` so the backup
+/// shares a filesystem with the install — required for
+/// `renameat2(RENAME_EXCHANGE)` rollback to work.
+///
+/// Concretely, given an install at `/opt/helium-browser-bin`, the snapshot
+/// goes under `/opt/.neon-backups/Helium-<version>-<ts>/`. Used by the
+/// privileged code path (when `neon patch` is running as root after a
+/// `pkexec` escalation): root-owned, same-filesystem, atomic-swap-ready.
+///
+/// The orchestrator picks this over [`snapshot_for_browser`] when the
+/// target install path is not writable by the current process — i.e. we're
+/// already escalated or about to be. Same-filesystem placement lets
+/// `renameat2(RENAME_EXCHANGE)` succeed with `EXDEV`-free rollback.
+///
+/// # Errors
+///
+/// * [`crate::ErrorCategory::UnknownBundleStructure`] — `install_path` has
+///   no parent (i.e. is `/`).
+/// * Other categories — propagated from [`snapshot_into`].
+pub fn snapshot_into_sibling(
+    install_path: &Path,
+    label: &str,
+    version: Option<&str>,
+) -> Result<BackupHandle> {
+    let parent = install_path.parent().ok_or_else(|| {
+        Error::unknown_bundle_structure(format!(
+            "install path {} has no parent for sibling backup",
+            install_path.display()
+        ))
+    })?;
+    let backups_root = parent.join(".neon-backups");
+    snapshot_into(install_path, &backups_root, label, version)
+}
+
 /// Test- and injection-friendly snapshot. Public to the crate so the
 /// patch orchestrator's tests can route backups under a `tempfile::TempDir`.
 pub(crate) fn snapshot_into(
@@ -660,6 +694,62 @@ mod tests {
                 assert_eq!(e.category, crate::ErrorCategory::StateCorrupted);
             }
         }
+    }
+
+    /// `snapshot_into_sibling` places the backup under `<install-parent>/.neon-backups/`.
+    #[test]
+    fn snapshot_into_sibling_places_backup_in_install_parent() {
+        let tmp = TempDir::new().expect("tempdir");
+        let parent = tmp.path().join("opt");
+        let install = parent.join("helium-browser-bin");
+        build_fake_bundle(&install);
+        let handle = snapshot_into_sibling(&install, "Helium", Some("1.0")).expect("snapshot");
+        let snap = handle.snapshot_path();
+        let backups_root = parent.join(".neon-backups");
+        assert!(
+            snap.starts_with(&backups_root),
+            "snapshot {} should be under {}",
+            snap.display(),
+            backups_root.display()
+        );
+        // Same-filesystem invariant: the backup root and the install
+        // share a parent directory, so atomic_rename can swap between
+        // them without EXDEV.
+        assert_eq!(
+            snap.parent().and_then(|p| p.parent()),
+            Some(parent.as_path())
+        );
+        let _ = handle.commit();
+    }
+
+    /// `snapshot_into_sibling` produces a same-filesystem backup that
+    /// `BackupHandle::restore` can swap atomically — verified via a
+    /// content-mutation round-trip.
+    #[test]
+    fn snapshot_into_sibling_supports_atomic_restore() {
+        let tmp = TempDir::new().expect("tempdir");
+        let parent = tmp.path().join("opt");
+        let install = parent.join("helium-browser-bin");
+        build_fake_bundle(&install);
+        let handle = snapshot_into_sibling(&install, "Helium", Some("1.0")).expect("snapshot");
+        // Mutate the install (simulate a botched patch).
+        fs::write(install.join("hello.txt"), b"corrupted").expect("write corrupt");
+        // Restore via atomic_rename. Same filesystem (both under the
+        // tempdir's mountpoint), so this must succeed without EXDEV.
+        handle.restore().expect("restore must succeed");
+        assert_eq!(fs::read(install.join("hello.txt")).expect("read"), b"hello");
+    }
+
+    /// `snapshot_into_sibling` errors out when the install path has no
+    /// parent (e.g. invoked directly with `/`). We can't actually pass
+    /// `/` here without root, so we use the empty path which has no
+    /// parent.
+    #[test]
+    fn snapshot_into_sibling_errors_when_install_has_no_parent() {
+        let result = snapshot_into_sibling(Path::new(""), "X", None);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.category, crate::ErrorCategory::UnknownBundleStructure);
     }
 
     /// `snapshot_for_browser` builds the `<name>-<version>-<ts>` form.
