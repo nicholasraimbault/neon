@@ -60,10 +60,19 @@ cd "$REPO_ROOT"
 # ─── detect what's missing ────────────────────────────────────────────
 step "Checking system prerequisites…"
 
-MISSING_PKGS=()
-for pkg in libvirt looking-glass looking-glass-module-dkms qemu-base swtpm edk2-ovmf; do
+# Required packages, split by source. looking-glass + looking-glass-module-dkms
+# live in AUR; official-repo install via pkexec, AUR via the user's helper.
+OFFICIAL_PKGS=()
+for pkg in libvirt qemu-base swtpm edk2-ovmf; do
     if ! pacman -Qi "$pkg" >/dev/null 2>&1; then
-        MISSING_PKGS+=("$pkg")
+        OFFICIAL_PKGS+=("$pkg")
+    fi
+done
+
+AUR_PKGS=()
+for pkg in looking-glass looking-glass-module-dkms; do
+    if ! pacman -Qi "$pkg" >/dev/null 2>&1; then
+        AUR_PKGS+=("$pkg")
     fi
 done
 
@@ -84,9 +93,28 @@ if ! systemctl is-active --quiet libvirtd.service 2>/dev/null; then
     NEED_LIBVIRTD=true
 fi
 
-# ─── summarize what will happen ───────────────────────────────────────
+# ─── AUR packages first (paru handles its own sudo in YOUR terminal) ──
+if [ ${#AUR_PKGS[@]} -gt 0 ]; then
+    echo
+    if command -v paru >/dev/null && [ -t 0 ] && [ -z "${NEON_BRIDGE_NONINTERACTIVE:-}" ]; then
+        step "Installing AUR packages with paru: ${AUR_PKGS[*]}"
+        info "(paru will prompt for sudo in this terminal)"
+        paru -S --needed "${AUR_PKGS[@]}"
+    else
+        die "AUR packages required: ${AUR_PKGS[*]}
+
+These live in the Arch User Repository, not official repos.
+Run this in your terminal first:
+
+    paru -S --needed ${AUR_PKGS[*]}
+
+Then re-run $0."
+    fi
+fi
+
+# ─── summarize what will happen via pkexec ────────────────────────────
 NEEDS_ROOT=false
-if [ ${#MISSING_PKGS[@]} -gt 0 ]; then NEEDS_ROOT=true; fi
+if [ ${#OFFICIAL_PKGS[@]} -gt 0 ]; then NEEDS_ROOT=true; fi
 $NEED_KVMFR_LOAD && NEEDS_ROOT=true
 $NEED_UDEV_RULE && NEEDS_ROOT=true
 $NEED_KVM_GROUP && NEEDS_ROOT=true
@@ -96,7 +124,7 @@ $NEED_LIBVIRTD && NEEDS_ROOT=true
 if $NEEDS_ROOT; then
     echo
     info "The following system changes will be made via a single pkexec prompt:"
-    [ ${#MISSING_PKGS[@]} -gt 0 ] && info "  • Install packages: ${MISSING_PKGS[*]}"
+    [ ${#OFFICIAL_PKGS[@]} -gt 0 ] && info "  • Install official packages: ${OFFICIAL_PKGS[*]}"
     $NEED_KVMFR_LOAD     && info "  • Load kvmfr kernel module (static_size_mb=64)"
     $NEED_UDEV_RULE      && info "  • Install /etc/udev/rules.d/99-kvmfr.rules"
     $NEED_KVM_GROUP      && info "  • Add $USER to the kvm group"
@@ -119,8 +147,8 @@ if $NEEDS_ROOT; then
         echo ': "${NEON_USER:?NEON_USER must be set}"'
         echo
 
-        if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
-            echo "pacman -S --noconfirm --needed ${MISSING_PKGS[*]}"
+        if [ ${#OFFICIAL_PKGS[@]} -gt 0 ]; then
+            echo "pacman -S --noconfirm --needed ${OFFICIAL_PKGS[*]}"
             echo
         fi
 
