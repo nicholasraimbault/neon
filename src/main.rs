@@ -152,12 +152,13 @@ enum Command {
     /// Bridge a URL to a guest VM with hardware-backed Widevine
     /// (experimental; requires the `experimental-bridge` Cargo feature).
     ///
-    /// V3-Phase C ships `init` and `status`; the rest are stubs queued
-    /// for V3-Phase D / F.
+    /// V3-Phase F ships the full subcommand tree. With no subcommand,
+    /// `neon stream` auto-dispatches: `init` if not provisioned,
+    /// `status` otherwise.
     #[cfg(feature = "experimental-bridge")]
     Stream {
         #[command(subcommand)]
-        sub: StreamSubcommand,
+        sub: Option<StreamSubcommand>,
     },
 }
 
@@ -226,18 +227,53 @@ enum StreamSubcommand {
     /// next `neon stream start` resumes from the `last-good` snapshot.
     Stop,
 
-    /// Detect + fix broken bridge state (queued for V3-Phase F).
-    Repair,
+    /// Detect + fix broken bridge state.
+    Repair {
+        /// Skip confirmation prompts and apply fixes in priority order.
+        #[arg(long)]
+        auto: bool,
+        /// Force restore from a specific snapshot label.
+        #[arg(long)]
+        from_snapshot: Option<String>,
+        /// Take a new `fresh` snapshot from the current VM state.
+        #[arg(long)]
+        refresh_snapshot: bool,
+    },
 
-    /// Remove the bridge VM, ISO, snapshots (queued for V3-Phase F).
+    /// Remove the bridge VM, ISO, snapshots.
     Uninstall {
         /// Also remove `~/.config/neon/bridge.toml`.
         #[arg(long)]
         purge: bool,
     },
 
-    /// Show / change the bridge license posture (queued for V3-Phase F).
-    License,
+    /// Show / change the bridge license posture.
+    License {
+        #[command(subcommand)]
+        action: Option<LicenseAction>,
+    },
+}
+
+/// Subcommand under `neon stream license`.
+#[cfg(feature = "experimental-bridge")]
+#[derive(Debug, Subcommand)]
+enum LicenseAction {
+    /// Show the current license posture.
+    Show,
+    /// Set a new license posture.
+    Set {
+        /// Opt into the 90-day Microsoft trial.
+        #[arg(long, conflicts_with_all = ["key", "key_file"])]
+        eval: bool,
+        /// Bring your own Windows product key.
+        #[arg(long, conflicts_with_all = ["eval", "key_file"])]
+        key: Option<String>,
+        /// Path to a key file (CSV / KMS).
+        #[arg(long, conflicts_with_all = ["eval", "key"])]
+        key_file: Option<std::path::PathBuf>,
+    },
+    /// Show the PowerShell command the guest runs to re-arm the trial.
+    Rearm,
 }
 
 fn main() -> ExitCode {
@@ -329,29 +365,58 @@ fn dispatch(cmd: Command, output: cli::OutputOptions) -> neon::Result<()> {
 }
 
 #[cfg(feature = "experimental-bridge")]
-fn dispatch_stream(sub: StreamSubcommand, output: cli::OutputOptions) -> neon::Result<()> {
+fn dispatch_stream(sub: Option<StreamSubcommand>, output: cli::OutputOptions) -> neon::Result<()> {
     use cli::stream;
     let s = match sub {
-        StreamSubcommand::Init {
+        None => stream::Subcommand::Default(output),
+        Some(StreamSubcommand::Init {
             accept_eval,
             license_key,
             license_file,
-        } => stream::Subcommand::Init(stream::InitArgs {
+        }) => stream::Subcommand::Init(stream::InitArgs {
             accept_eval,
             license_key,
             license_file,
             output,
         }),
-        StreamSubcommand::Status { json } => {
+        Some(StreamSubcommand::Status { json }) => {
             stream::Subcommand::Status(stream::StatusArgs { json, output })
         }
-        StreamSubcommand::Start { url } => {
+        Some(StreamSubcommand::Start { url }) => {
             stream::Subcommand::Start(stream::StartArgs { url, output })
         }
-        StreamSubcommand::Stop => stream::Subcommand::Stop(stream::StopArgs { output }),
-        StreamSubcommand::Repair => stream::Subcommand::Repair { output },
-        StreamSubcommand::Uninstall { purge } => stream::Subcommand::Uninstall { purge, output },
-        StreamSubcommand::License => stream::Subcommand::License { output },
+        Some(StreamSubcommand::Stop) => stream::Subcommand::Stop(stream::StopArgs { output }),
+        Some(StreamSubcommand::Repair {
+            auto,
+            from_snapshot,
+            refresh_snapshot,
+        }) => stream::Subcommand::Repair(stream::RepairArgs {
+            auto,
+            from_snapshot,
+            refresh_snapshot,
+            output,
+        }),
+        Some(StreamSubcommand::Uninstall { purge }) => {
+            stream::Subcommand::Uninstall(stream::UninstallArgs { purge, output })
+        }
+        Some(StreamSubcommand::License { action }) => {
+            stream::Subcommand::License(stream::LicenseArgs {
+                action: match action {
+                    None | Some(LicenseAction::Show) => stream::license::Action::Show,
+                    Some(LicenseAction::Set {
+                        eval,
+                        key,
+                        key_file,
+                    }) => stream::license::Action::Set {
+                        eval,
+                        key,
+                        key_file,
+                    },
+                    Some(LicenseAction::Rearm) => stream::license::Action::Rearm,
+                },
+                output,
+            })
+        }
     };
     stream::run(s)
 }

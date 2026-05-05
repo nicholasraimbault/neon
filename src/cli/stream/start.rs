@@ -1,4 +1,5 @@
-//! `neon stream start [URL]` — V3-Phase D resume + Looking Glass launch.
+//! `neon stream start [URL]` — V3-Phase D resume + Looking Glass launch,
+//! V3-Phase F URL navigation.
 //!
 //! Apple-UX guarantees:
 //!
@@ -11,10 +12,12 @@
 //! * Hardware checks happen first: kvmfr loaded? IDD fallback OK?
 //!   `bridge.toml` present? Each red gets a specific remediation
 //!   surface (capability gate is the same one `cli::stream::init` uses).
-//! * URL passing to the guest's Edge is **deferred to V3-Phase F** —
-//!   for V3.0 the URL parameter is captured but Edge boots at the
-//!   default home page. The wizard logs an info message and points the
-//!   user at the manual paste-URL workaround.
+//! * URL passing to the guest's Edge — V3-Phase F writes a sentinel file
+//!   into the shared data directory which the guest's autounattend
+//!   first-logon script polls. The first-logon script launches Edge
+//!   pointed at the URL.
+//! * [`NEON_TEST_GUEST_NAVIGATE_NOOP=1`](GUEST_NAVIGATE_NOOP_ENV) makes
+//!   the URL-write step a no-op for tests.
 
 use std::io::Write;
 use std::time::{Duration, Instant};
@@ -45,6 +48,14 @@ pub struct Args {
 
 /// Cold-start budget per the V3 plan ("under 10s on a warm pool").
 pub const COLD_START_BUDGET: Duration = Duration::from_secs(10);
+
+/// Env var that gates the guest-side URL navigation in tests.
+pub const GUEST_NAVIGATE_NOOP_ENV: &str = "NEON_TEST_GUEST_NAVIGATE_NOOP";
+
+/// Filename of the navigation-URL sentinel inside the bridge data dir.
+/// The guest's autounattend first-logon script polls this and, when
+/// non-empty, launches Edge pointed at the URL.
+pub const NAVIGATE_URL_SENTINEL: &str = "neon-navigate-url.txt";
 
 /// Run `neon stream start`.
 ///
@@ -144,15 +155,38 @@ where
 
     if !args.output.quiet {
         writeln!(out, "Step 3/3: Looking Glass client launched").map_err(Error::from)?;
-        if let Some(url) = &args.url {
-            writeln!(
-                out,
-                "Note: opening `{url}` in the guest's Edge is queued for \
-                 V3-Phase F. For now, paste the URL into Edge inside the \
-                 Looking Glass window."
-            )
-            .map_err(Error::from)?;
+    }
+
+    // V3-Phase F: write the URL into the shared sentinel file the
+    // guest's first-logon script polls. The guest opens Edge with the
+    // URL parameter when the sentinel is non-empty.
+    if let Some(url) = args.url.as_deref() {
+        match write_navigate_url(url) {
+            Ok(path) => {
+                if !args.output.quiet {
+                    writeln!(
+                        out,
+                        "Wrote URL to {} — guest's Edge picks this up at first poll \
+                         (typically within a few seconds).",
+                        path.display()
+                    )
+                    .map_err(Error::from)?;
+                }
+            }
+            Err(e) => {
+                if !args.output.quiet {
+                    writeln!(
+                        out,
+                        "Note: could not write navigation sentinel ({e}). \
+                         Paste {url} into Edge inside the Looking Glass window."
+                    )
+                    .map_err(Error::from)?;
+                }
+            }
         }
+    }
+
+    if !args.output.quiet {
         writeln!(
             out,
             "Cold start time: {}.",
@@ -207,6 +241,30 @@ fn wait_for_sunshine_handshake(timeout: Duration) -> bool {
 fn launch_looking_glass() -> Result<LookingGlassHandle> {
     let spec = LookingGlassSpec::defaults();
     looking_glass::launch(&spec)
+}
+
+/// Write the URL into the bridge-data-dir sentinel file the guest's
+/// first-logon script polls.
+///
+/// Honors [`GUEST_NAVIGATE_NOOP_ENV`] — under NOOP we don't write the
+/// file; we just return the path that *would* have been written.
+///
+/// # Errors
+///
+/// * [`crate::ErrorCategory::Other`] — disk I/O / no resolvable data dir.
+fn write_navigate_url(url: &str) -> Result<std::path::PathBuf> {
+    let data_dir = dirs::data_local_dir()
+        .map(|d| d.join("neon").join("bridge"))
+        .ok_or_else(|| Error::other("cannot resolve ~/.local/share/neon/bridge"))?;
+    let path = data_dir.join(NAVIGATE_URL_SENTINEL);
+    if std::env::var_os(GUEST_NAVIGATE_NOOP_ENV).is_some() {
+        return Ok(path);
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(Error::from)?;
+    }
+    std::fs::write(&path, url).map_err(Error::from)?;
+    Ok(path)
 }
 
 /// Format a `Duration` as `Xs` or `Xm Ys`. Same shape as
@@ -448,6 +506,7 @@ mod tests {
             std::env::set_var(HV_NOOP_ENV, "1");
             std::env::set_var(SENTINEL_NOOP_ENV, "1");
             std::env::set_var(crate::bridge::looking_glass::NOOP_ENV, "1");
+            std::env::set_var(GUEST_NAVIGATE_NOOP_ENV, "1");
         }
         let mut buf = Vec::new();
         let args = Args {
@@ -461,13 +520,47 @@ mod tests {
             std::env::remove_var(HV_NOOP_ENV);
             std::env::remove_var(SENTINEL_NOOP_ENV);
             std::env::remove_var(crate::bridge::looking_glass::NOOP_ENV);
+            std::env::remove_var(GUEST_NAVIGATE_NOOP_ENV);
         }
         result.expect("noop full path");
         let body = String::from_utf8(buf).expect("utf8");
         assert!(body.contains("VM resumed"));
         assert!(body.contains("Looking Glass"));
-        // URL deferred-message surfaces.
-        assert!(body.contains("V3-Phase F"));
+        // URL navigation surfaced.
+        assert!(body.contains("Wrote URL"));
+    }
+
+    /// `write_navigate_url` under NOOP returns the path without writing.
+    #[test]
+    fn write_navigate_url_under_noop_is_pure() {
+        let _g = crate::test_support::env_lock();
+        // SAFETY: env behind env_lock.
+        unsafe {
+            std::env::set_var(GUEST_NAVIGATE_NOOP_ENV, "1");
+        }
+        let path = write_navigate_url("https://example.com").expect("url path");
+        assert!(path.ends_with(NAVIGATE_URL_SENTINEL));
+        unsafe {
+            std::env::remove_var(GUEST_NAVIGATE_NOOP_ENV);
+        }
+    }
+
+    /// `write_navigate_url` writes URL bytes when not NOOP'd.
+    #[test]
+    fn write_navigate_url_writes_url_bytes() {
+        let _g = crate::test_support::env_lock();
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        // SAFETY: env behind env_lock.
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", tmp.path());
+            std::env::remove_var(GUEST_NAVIGATE_NOOP_ENV);
+        }
+        let path = write_navigate_url("https://example.com").expect("url path");
+        let contents = std::fs::read_to_string(&path).expect("read");
+        assert_eq!(contents, "https://example.com");
+        unsafe {
+            std::env::remove_var("XDG_DATA_HOME");
+        }
     }
 
     #[test]
