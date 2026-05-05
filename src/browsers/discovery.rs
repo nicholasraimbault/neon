@@ -119,9 +119,28 @@ fn discover_linux(roots: &FilesystemRoots) -> Vec<Browser> {
     out
 }
 
-/// Returns true if `dir` contains a Chromium-family sandbox helper.
+/// Returns true if `dir` looks like a standalone Chromium-family browser
+/// (as opposed to an Electron-based application like Signal Desktop or
+/// Tutanota).
+///
+/// A browser directory must contain BOTH:
+/// 1. A Chromium sandbox helper (`chrome-sandbox` or `chromium-sandbox`)
+/// 2. A top-level executable named `chrome` or `chromium`
+///
+/// Electron apps satisfy (1) — they bundle `chrome-sandbox` for their
+/// own sandboxing — but rename their main binary to the app name
+/// (`electron`, `signal-desktop`, `tutanota-desktop`, etc.). The (2)
+/// check filters them out.
 fn has_chromium_sandbox(dir: &Path) -> bool {
-    dir.join("chrome-sandbox").exists() || dir.join("chromium-sandbox").exists()
+    let has_sandbox = dir.join("chrome-sandbox").exists()
+        || dir.join("chromium-sandbox").exists();
+    if !has_sandbox {
+        return false;
+    }
+    // Must also have a browser-shaped main executable.
+    dir.join("chrome").exists()
+        || dir.join("chromium").exists()
+        || dir.join("chromium-browser").exists()
 }
 
 /// macOS discovery: walk each of `roots.macos_applications` one level
@@ -266,9 +285,18 @@ mod tests {
         let helium = opt.join("helium-browser-bin");
         fs::create_dir_all(&helium).expect("mkdir helium");
         fs::write(helium.join("chrome-sandbox"), b"#!/bin/sh\n").expect("touch sandbox");
+        // Real browsers also have a top-level `chrome` binary; this is what
+        // distinguishes them from Electron apps.
+        fs::write(helium.join("chrome"), b"\x7fELF").expect("touch chrome");
         // A peer dir without a sandbox marker — should not be detected.
         let other = opt.join("not-a-browser");
         fs::create_dir_all(&other).expect("mkdir other");
+        // An Electron app (chrome-sandbox present but no `chrome` binary) —
+        // must NOT be detected.
+        let electron_app = opt.join("signal-desktop");
+        fs::create_dir_all(&electron_app).expect("mkdir electron app");
+        fs::write(electron_app.join("chrome-sandbox"), b"").expect("touch");
+        fs::write(electron_app.join("signal-desktop"), b"\x7fELF").expect("touch app");
 
         let roots = FilesystemRoots {
             macos_applications: vec![],
@@ -276,7 +304,7 @@ mod tests {
             sandbox_root: None,
         };
         let found = discover_filesystem(Os::Linux, &roots);
-        assert_eq!(found.len(), 1);
+        assert_eq!(found.len(), 1, "should find only the real browser");
         assert_eq!(found[0].name, "helium-browser-bin");
         assert_eq!(found[0].install_path, helium);
         assert_eq!(found[0].kind, BrowserKind::Detected);
@@ -290,6 +318,8 @@ mod tests {
         let chromium = opt.join("chromium");
         fs::create_dir_all(&chromium).expect("mkdir");
         fs::write(chromium.join("chromium-sandbox"), b"").expect("touch");
+        // Need the `chromium` binary alongside `chromium-sandbox`.
+        fs::write(chromium.join("chromium"), b"\x7fELF").expect("touch chromium");
         let roots = FilesystemRoots {
             macos_applications: vec![],
             linux_search: vec![opt.clone()],
@@ -298,6 +328,32 @@ mod tests {
         let found = discover_filesystem(Os::Linux, &roots);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].name, "chromium");
+    }
+
+    #[test]
+    fn linux_discovery_filters_out_electron_apps() {
+        // Regression test for the V2-acceptance bug: chrome-sandbox alone
+        // is insufficient; Signal Desktop, Tutanota, electron41, CEF all
+        // ship chrome-sandbox but should NOT be patched as browsers.
+        let tmp = TempDir::new().expect("tempdir");
+        let opt = tmp.path().join("opt");
+        for app in ["signal-desktop", "tutanota-desktop", "electron41", "cef"] {
+            let dir = opt.join(app);
+            fs::create_dir_all(&dir).expect("mkdir electron app");
+            fs::write(dir.join("chrome-sandbox"), b"").expect("touch sandbox");
+            // Each app's main binary is named after itself, NOT `chrome`.
+            fs::write(dir.join(app), b"\x7fELF").expect("touch app");
+        }
+        let roots = FilesystemRoots {
+            macos_applications: vec![],
+            linux_search: vec![opt.clone()],
+            sandbox_root: None,
+        };
+        let found = discover_filesystem(Os::Linux, &roots);
+        assert!(
+            found.is_empty(),
+            "Electron apps must not be auto-discovered as browsers"
+        );
     }
 
     #[test]
