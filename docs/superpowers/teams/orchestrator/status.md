@@ -39,8 +39,8 @@ Known issue (not blocking): pre-existing flake in `daemon::lifecycle::tests` env
 | V3-A — Scaffolding | **Done** | 6 commits; CdmProvider trait; bridge stub; feature flag; 466/469 tests both paths |
 | V3-B — Hardware capability detection | **Done** | 5 commits; BridgeCapabilities API; per-vendor remediation; env_mutex flake fixed; 494/508 tests; **first hardware-acceptance gate passed on Nick's actual machine** |
 | V3-C — Windows guest provisioning | **Done** | 4 commits; ISO + license + unattended XML + libvirt XML + libvirt orchestration + install + `neon stream init` + status; 613 tests with feature; **Nick action required** — pin Microsoft ISO + Sunshine URL/SHA-256 to 2026 values (placeholders are 2024) before end-to-end run, OR wait for Phase F bridge.toml override |
-| V3-D — Looking Glass + tray growth | In progress | bridge + daemon teams serially (LG + kvmfr first, then tray extensions) |
-| V3-F — Polish + repair | Pending | Per V3 orchestration plan |
+| V3-D — Looking Glass + tray growth | **Done** | 6 commits; kvmfr detection + LG client wrapper + IDD fallback + stream start/stop + tray V3 extensions (Stream Netflix/Disney+/HBO Max + Bridge submenu); 494/675 tests; default V2 menu unchanged |
+| V3-F — Polish + repair | In progress | bridge team (single agent); URL navigation, repair flow, uninstall, bridge.toml override (unblocks Phase C URL pinning issue), wizard polish |
 | V3-E — CDM forwarding | Deferred to V3.1 | Decided pre-execution |
 | 3 — Daemon | Pending | daemon + platform (parallel) |
 | 4 — CLI completion | Pending | cli sequential |
