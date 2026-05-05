@@ -112,12 +112,45 @@ impl Browser {
 
     /// Whether this browser has been patched with the Widevine CDM.
     ///
-    /// **Phase 1 stub.** Always returns `false`. Phase 2 will replace this
-    /// with the real check (look for the CDM directory at the expected
-    /// per-platform path under `install_path`).
+    /// Check whether the Widevine CDM is currently installed in this browser.
+    ///
+    /// Looks for the CDM manifest at the expected per-platform path under
+    /// `install_path`:
+    /// - Linux: `<install_path>/WidevineCdm/manifest.json`
+    /// - macOS: walks `<install_path>/Contents/Frameworks/<framework>.framework/Versions/<n>/Libraries/WidevineCdm/manifest.json`
+    ///
+    /// Returns `false` if the manifest is missing, unreadable, or the
+    /// browser's framework structure has changed.
     #[must_use]
     pub fn is_patched(&self) -> bool {
-        false
+        // macOS: walk the framework Versions directory to find any version
+        // directory with the CDM at the expected sub-path.
+        if let Some(framework_name) = &self.framework_name {
+            let versions_dir = self
+                .install_path
+                .join("Contents")
+                .join("Frameworks")
+                .join(format!("{framework_name}.framework"))
+                .join("Versions");
+            if let Ok(entries) = std::fs::read_dir(&versions_dir) {
+                for entry in entries.flatten() {
+                    let manifest = entry
+                        .path()
+                        .join("Libraries")
+                        .join("WidevineCdm")
+                        .join("manifest.json");
+                    if manifest.exists() {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        // Linux: simple per-install check.
+        self.install_path
+            .join("WidevineCdm")
+            .join("manifest.json")
+            .exists()
     }
 }
 
@@ -396,17 +429,58 @@ mod tests {
     }
 
     #[test]
-    fn is_patched_phase1_stub_returns_false() {
+    fn is_patched_returns_false_when_cdm_manifest_missing() {
+        // Linux: pointing at a path with no WidevineCdm/manifest.json.
+        let tmp = TempDir::new().expect("tempdir");
         let b = Browser {
             name: "x".into(),
-            install_path: PathBuf::from("/opt/x"),
+            install_path: tmp.path().to_path_buf(),
             kind: BrowserKind::Detected,
             framework_name: None,
         };
         assert!(!b.is_patched());
         // Also exercise the convenience accessors.
         assert_eq!(b.name(), "x");
-        assert_eq!(b.install_path(), Path::new("/opt/x"));
+        assert_eq!(b.install_path(), tmp.path());
+    }
+
+    #[test]
+    fn is_patched_returns_true_when_linux_cdm_manifest_exists() {
+        let tmp = TempDir::new().expect("tempdir");
+        let cdm = tmp.path().join("WidevineCdm");
+        fs::create_dir_all(&cdm).expect("mkdir cdm");
+        fs::write(cdm.join("manifest.json"), b"{\"version\":\"4.10.0.0\"}")
+            .expect("touch manifest");
+        let b = Browser {
+            name: "x".into(),
+            install_path: tmp.path().to_path_buf(),
+            kind: BrowserKind::Detected,
+            framework_name: None,
+        };
+        assert!(b.is_patched());
+    }
+
+    #[test]
+    fn is_patched_macos_walks_versions_dir() {
+        let tmp = TempDir::new().expect("tempdir");
+        let bundle = tmp.path().join("Helium.app");
+        let framework_versions = bundle
+            .join("Contents")
+            .join("Frameworks")
+            .join("Helium Framework.framework")
+            .join("Versions")
+            .join("147.0.7727.137");
+        let cdm = framework_versions.join("Libraries").join("WidevineCdm");
+        fs::create_dir_all(&cdm).expect("mkdir cdm");
+        fs::write(cdm.join("manifest.json"), b"{}")
+            .expect("touch manifest");
+        let b = Browser {
+            name: "Helium".into(),
+            install_path: bundle,
+            kind: BrowserKind::Known,
+            framework_name: Some("Helium Framework".into()),
+        };
+        assert!(b.is_patched());
     }
 
     #[test]
