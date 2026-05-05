@@ -237,6 +237,20 @@ pub fn run_with(options: &RunOptions) -> Result<()> {
         .unwrap_or_else(|| Duration::from_secs(INTEGRITY_INTERVAL_SECS));
     let integrity_handle = spawn_integrity_check(integrity_interval, Arc::clone(&stop));
 
+    // V3 bridge health-monitor thread (only spawned under feature flag).
+    #[cfg(feature = "experimental-bridge")]
+    let bridge_health_handle = match crate::bridge::health::spawn_health_thread(Arc::clone(&stop)) {
+        Ok(h) => h,
+        Err(e) => {
+            tracing::warn!(
+                target: "neon::daemon",
+                error = %e,
+                "bridge health monitor failed to spawn; bridge state notifications disabled"
+            );
+            None
+        }
+    };
+
     // Run the main event loop. In production this blocks until the user
     // clicks Quit / sends SIGTERM. In test mode (`single_iteration`) we run
     // one iteration then return.
@@ -252,6 +266,10 @@ pub fn run_with(options: &RunOptions) -> Result<()> {
         let _ = h.join();
     }
     if let Some(h) = integrity_handle {
+        let _ = h.join();
+    }
+    #[cfg(feature = "experimental-bridge")]
+    if let Some(h) = bridge_health_handle {
         let _ = h.join();
     }
     write_shutdown_timestamp(heartbeat_path.parent().unwrap_or_else(|| Path::new("/tmp")));
@@ -631,6 +649,11 @@ fn run_event_loop(tray: &Tray, stop: &Arc<AtomicBool>, single_iteration: bool) -
                 tracing::info!(target: "neon::daemon", "tray BridgeRepair");
                 handle_bridge_repair();
             }
+            #[cfg(feature = "experimental-bridge")]
+            Some(TrayCommand::BridgeRearm) => {
+                tracing::info!(target: "neon::daemon", "tray BridgeRearm");
+                handle_bridge_rearm();
+            }
             None => {
                 std::thread::sleep(Duration::from_millis(100));
             }
@@ -728,21 +751,65 @@ fn handle_bridge_resume() {
     }
 }
 
-/// Tray dispatch: V3-Phase F repair flow. Emits a TODO log line + info
-/// notification for V3-Phase D — `cli::stream::repair::run` ships in F.
+/// Tray dispatch: V3-Phase F repair flow. Spawns a detached thread that
+/// runs `cli::stream::repair::run` with `--auto`.
 #[cfg(feature = "experimental-bridge")]
 fn handle_bridge_repair() {
     if daemon_patch_noop() {
         return;
     }
-    tracing::info!(
-        target: "neon::daemon",
-        "tray BridgeRepair: V3-Phase F wires `cli::stream::repair::run`. \
-         For V3-Phase D this is a TODO placeholder."
-    );
+    std::thread::Builder::new()
+        .name("neon-bridge-repair".to_string())
+        .spawn(move || {
+            let args = crate::cli::stream::repair::Args {
+                auto: true,
+                output: crate::cli::OutputOptions {
+                    quiet: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            match crate::cli::stream::repair::run_with(&args, &mut std::io::sink()) {
+                Ok(outcome) => {
+                    if outcome.fully_repaired() {
+                        notify_user::notify_info(&format!(
+                            "Bridge repair complete. {}/{} issue(s) fixed.",
+                            outcome.repaired.len(),
+                            outcome.issues.len()
+                        ));
+                    } else if outcome.has_issues() {
+                        notify_user::notify_info(&format!(
+                            "Bridge repair partial: {}/{} issue(s) fixed. \
+                             Run `neon stream repair` for details.",
+                            outcome.repaired.len(),
+                            outcome.issues.len()
+                        ));
+                    } else {
+                        notify_user::notify_info("Bridge looks healthy.");
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(target: "neon::daemon", error = %e, "BridgeRepair failed");
+                    notify_user::notify_failure(e.category, &e.message);
+                }
+            }
+        })
+        .ok();
+}
+
+/// Tray dispatch: V3-Phase F rearm prompt. Surfaces the PowerShell
+/// command via a notification — actual execution is in the guest
+/// (`schtasks` already wires this from V3-Phase C's autounattend; this
+/// path is for users who want to trigger it manually).
+#[cfg(feature = "experimental-bridge")]
+fn handle_bridge_rearm() {
+    if daemon_patch_noop() {
+        return;
+    }
     notify_user::notify_info(
-        "Bridge repair flow lands in V3-Phase F. \
-         For now, `neon stream init --accept-eval` re-provisions cleanly.",
+        "Eval rearm: open the bridge VM (Looking Glass window) and run \
+         `slmgr /rearm` from an admin PowerShell. \
+         See `neon stream license rearm` for the full command.",
     );
 }
 
