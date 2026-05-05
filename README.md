@@ -59,7 +59,7 @@ There's an experimental escape hatch — `neon stream` — that runs a Win11 IoT
 - **Atomic patching with rollback.** Every patch snapshots the original framework, writes the new one to a staging copy, and atomic-renames into place (`renameat2(RENAME_EXCHANGE)` on Linux, `renameatx_np(RENAME_SWAP)` on macOS). A crash mid-patch never destroys the browser bundle.
 - **Browser-running detection.** Refuses to patch a running browser by default; the daemon defers and retries automatically when the browser quits (mtime stable for 30s).
 - **Tray icon + native notifications.** Per-browser status, one-click re-patch, native success/failure notifications via libnotify (Linux) or NSUserNotificationCenter (macOS).
-- **`neon doctor`** produces structured diagnostics with EME error-code translation (Netflix N-codes, Disney+ codes, Spotify codes, etc.) — paste a Netflix N-codes page right into `neon doctor 6020` for actionable advice.
+- **`neon doctor`** produces structured diagnostics with EME error-code translation (Netflix N-codes, Disney+ codes, Spotify codes, etc.) — paste a Netflix code right into `neon doctor N8156-6024` for actionable advice.
 - **`neon repair`** brings any broken state back to working in one command.
 - **Opt-in error reporting.** Default off. If enabled in `neon init`, categorized failure reports flow to a Cloudflare Worker so trends become visible without depending on user-filed issues. No PII; no telemetry; only failures.
 - **Mozilla manifest fallback chain.** Primary: `hg.mozilla.org`. Fallback: GitHub mirror. Final fallback: 24h-cached manifest. Survives `hg.mozilla.org` flakes (which is why Mozilla mirrors the manifest themselves).
@@ -110,7 +110,7 @@ If you're using regular Chrome, regular Edge, regular Brave, or Firefox — you 
 ## Requirements
 
 - macOS (x86_64 or aarch64) or Linux (x86_64).
-- On Linux: GTK + `libayatana-appindicator3` for the tray icon. If absent at runtime, the daemon falls back to `--no-tray` mode (notifications-only) with a clear log message.
+- On Linux: any tray bar that speaks the StatusNotifierItem protocol — KDE Plasma, sway/Hyprland with waybar, Quickshell-based shells (noctalia, Caelestia), Cinnamon, etc. Vanilla GNOME [removed tray support in 2017](https://blogs.gnome.org/aday/2017/08/31/status-icons-and-gnome/) and needs the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/). Without a working tray bar, the daemon falls back to notifications-only.
 - A Chromium-family browser to patch.
 
 ARM64 Linux (Asahi, Pi) is **not** supported in V1 — see [ROADMAP.md](ROADMAP.md) for V2 plans (proper ELF binary patching).
