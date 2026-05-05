@@ -51,7 +51,7 @@ Patched Widevine is **software-only L3**. Streaming services cap L3 playback at 
 
 Hardware-DRM L1 requires a Widevine binary signed by your device's TPM/Secure Enclave + browser binary signed by the browser vendor + CDN-side allow-listing. None of that exists for de-Googled Chromium forks. If you need 4K HDR, you need a device blessed by the studios — Apple TV, smart TV, official Edge/Safari/Chrome.
 
-[ROADMAP.md](ROADMAP.md) has a sketch of a V3 stretch goal — `neon localhost-bridge` — that proxies premium DRM through a local Win11 IoT VM with GPU passthrough. Experimental, behind a Cargo feature flag, not in V1.
+There's an experimental escape hatch — `neon stream` — that runs a Win11 IoT VM with GPU + TPM passthrough and streams its desktop back via Looking Glass. **It requires dual-GPU hardware** (single-GPU laptops can't use it; the host has no GPU left while the VM runs). And it gives you 4K *with tone-mapped HDR*, not true HDR end-to-end (Wayland HDR + Looking Glass HDR confluence is ~2026). Behind the `experimental-bridge` Cargo feature flag, off by default. See [ROADMAP.md](ROADMAP.md#v3--neon-stream-localhost-bridge-experimental-in-v1x) for the honest hardware-and-quality matrix before you opt in.
 
 ## Features
 
