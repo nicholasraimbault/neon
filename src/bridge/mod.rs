@@ -39,6 +39,8 @@ pub mod kvmfr;
 pub mod libvirt;
 pub mod libvirt_xml;
 pub mod license;
+#[cfg(target_os = "linux")]
+pub mod looking_glass;
 pub mod remediation;
 pub mod unattended;
 
