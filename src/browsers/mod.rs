@@ -229,8 +229,12 @@ mod tests {
     fn make_linux_browser_dir(root: &Path, name: &str) -> PathBuf {
         let dir = root.join(name);
         fs::create_dir_all(&dir).expect("mkdir");
-        // Linux Chromium-family marker.
+        // Linux Chromium-family markers: both the sandbox helper AND a
+        // top-level `chrome` binary (the latter distinguishes real
+        // browsers from Electron apps that ship chrome-sandbox but rename
+        // their main binary).
         fs::write(dir.join("chrome-sandbox"), b"#!/bin/sh\n").expect("touch sandbox");
+        fs::write(dir.join("chrome"), b"\x7fELF").expect("touch chrome binary");
         dir
     }
 
