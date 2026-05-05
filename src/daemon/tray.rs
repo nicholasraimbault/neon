@@ -598,12 +598,24 @@ impl ksni::Tray for NeonKsniTray {
     }
 
     fn icon_name(&self) -> String {
-        // Freedesktop icon-naming spec — "video-display" is in every
-        // mainstream icon theme (hicolor, Adwaita, Breeze, Papirus,
-        // etc.) and is a sensible "media playback helper" glyph for
-        // a Widevine helper. A follow-up commit replaces this with an
-        // embedded ARGB32 pixmap of the Neon icon.
-        "video-display".into()
+        // Empty string tells the SNI watcher there's no theme-installed
+        // icon — render the pixmap directly. Some compositors
+        // (Quickshell/noctalia, Plasma in some configs) look up
+        // `icon_name` in their icon theme *first* and render a
+        // placeholder when the name doesn't resolve, even if a pixmap
+        // is also supplied. Empty name forces them to fall through to
+        // the pixmap.
+        //
+        // A future polish step can install our PNG into the user's
+        // icon theme (`~/.local/share/icons/hicolor/22x22/apps/neon.png`)
+        // during `neon setup`, then return "neon" here so name-based
+        // lookup is also viable. Until then, pixmap is the source of
+        // truth.
+        String::new()
+    }
+
+    fn icon_pixmap(&self) -> Vec<ksni::Icon> {
+        neon_tray_icon_pixmap()
     }
 
     fn title(&self) -> String {
@@ -614,8 +626,8 @@ impl ksni::Tray for NeonKsniTray {
         ksni::ToolTip {
             title: "Neon — Widevine helper".into(),
             description: String::new(),
-            icon_name: "video-display".into(),
-            icon_pixmap: vec![],
+            icon_name: String::new(),
+            icon_pixmap: neon_tray_icon_pixmap(),
         }
     }
 
@@ -707,21 +719,83 @@ fn ksni_menu_from_specs(
         .collect()
 }
 
+/// Decode the embedded `linux-app/neon.png` into the ARGB32
+/// premultiplied-alpha format that ksni's `Icon` expects. Returns an
+/// empty vec on decode failure — ksni then falls back to the
+/// `icon_name` lookup, which is what we want.
+///
+/// PNG bytes give us RGBA8 in row-major order; ksni wants ARGB32 in
+/// network byte order with premultiplied alpha. The transform is
+/// per-pixel: reorder R,G,B,A → A,R,G,B and multiply each color
+/// channel by alpha/255 so half-transparent pixels don't render with
+/// halos against dark/light tray backgrounds.
+#[cfg(target_os = "linux")]
+fn neon_tray_icon_pixmap() -> Vec<ksni::Icon> {
+    /// Embedded PNG — 22×22 RGBA, the same icon the V0 Linux app
+    /// shipped. Ships as part of the binary; no install step.
+    const PNG_BYTES: &[u8] = include_bytes!("../../linux-app/neon.png");
+
+    let decoder = png::Decoder::new(PNG_BYTES);
+    let Ok(mut reader) = decoder.read_info() else {
+        return vec![];
+    };
+    let info = reader.info().clone();
+    let mut rgba = vec![0u8; reader.output_buffer_size()];
+    if reader.next_frame(&mut rgba).is_err() {
+        return vec![];
+    }
+
+    // PNG decoder honors the file's color type — for our 22×22 RGBA
+    // PNG this is Rgba8 (4 bytes/pixel). If the input ever changes to
+    // RGB / palette / grayscale, we'd silently render wrong, so reject
+    // anything unexpected.
+    if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
+        return vec![];
+    }
+
+    let pixel_count = (info.width * info.height) as usize;
+    let mut argb = vec![0u8; pixel_count * 4];
+    for (i, src) in rgba.chunks_exact(4).enumerate() {
+        let r = u16::from(src[0]);
+        let g = u16::from(src[1]);
+        let b = u16::from(src[2]);
+        let a = u16::from(src[3]);
+        // Premultiply with rounding (a * channel + 127) / 255 ≈
+        // a*channel/255 with half-up. Avoids the 0/255 edge banding
+        // that floor-division produces for fully-opaque pixels.
+        let dst = i * 4;
+        argb[dst] = src[3];
+        argb[dst + 1] = ((r * a + 127) / 255) as u8;
+        argb[dst + 2] = ((g * a + 127) / 255) as u8;
+        argb[dst + 3] = ((b * a + 127) / 255) as u8;
+    }
+
+    vec![ksni::Icon {
+        width: info.width as i32,
+        height: info.height as i32,
+        data: argb,
+    }]
+}
+
 impl Tray {
     /// Build a new tray icon with the supplied initial menu state.
     ///
-    /// On Linux this requires GTK + `libayatana-appindicator3` at runtime;
-    /// on macOS Cocoa `AppKit`. If the underlying library fails to
-    /// initialize, returns [`crate::ErrorCategory::UnsupportedPlatform`]
-    /// so the daemon can fall back to `--no-tray` mode.
+    /// On Linux this spawns a `ksni` StatusNotifierItem service over
+    /// the user session D-Bus; on macOS it constructs a Cocoa
+    /// NSStatusItem via the `tray-icon` crate. If the underlying
+    /// platform backend fails to initialize, returns
+    /// [`crate::ErrorCategory::UnsupportedPlatform`] so the daemon
+    /// can fall back to notifications-only mode.
     ///
     /// **Tests must not call this** — it opens an actual tray icon on
     /// the user's display. Use [`Tray::headless`] in tests.
     ///
     /// # Errors
     ///
-    /// * [`crate::ErrorCategory::UnsupportedPlatform`] if `tray-icon`
-    ///   cannot initialize.
+    /// * [`crate::ErrorCategory::UnsupportedPlatform`] if the
+    ///   platform tray backend cannot initialize (typically: no
+    ///   session D-Bus on Linux, or NSStatusItem allocation failure
+    ///   on macOS).
     /// * [`crate::ErrorCategory::Other`] for any other initialization
     ///   failure.
     pub fn new(initial_state: MenuState) -> Result<Self> {
@@ -1033,6 +1107,40 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::browsers::BrowserKind;
+
+    /// Embedded tray icon decodes to a non-empty 22×22 ARGB32 buffer.
+    /// Catches silent decode failures (PNG format mismatch, premultiply
+    /// math drift) that would otherwise only surface as a checkerboard
+    /// placeholder in the user's tray bar.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn neon_tray_icon_pixmap_decodes_to_nonempty_argb_buffer() {
+        let icons = neon_tray_icon_pixmap();
+        assert_eq!(icons.len(), 1, "expected exactly one icon size");
+        let icon = &icons[0];
+        assert_eq!(icon.width, 22);
+        assert_eq!(icon.height, 22);
+        assert_eq!(
+            icon.data.len(),
+            (icon.width * icon.height * 4) as usize,
+            "buffer length must equal width * height * 4 (ARGB32)"
+        );
+        // The reference PNG has 104 visible pixels (alpha > 0). After
+        // ARGB conversion every visible pixel has a non-zero alpha
+        // byte at position 0 mod 4. Asserting on the *count* of
+        // non-zero alpha bytes locks the conversion math against
+        // future regressions.
+        let alpha_bytes_set = icon
+            .data
+            .iter()
+            .step_by(4)
+            .filter(|&&b| b > 0)
+            .count();
+        assert_eq!(
+            alpha_bytes_set, 104,
+            "expected 104 visible pixels (matches reference PNG)"
+        );
+    }
 
     /// Helper: synthesize a `Browser`.
     fn fake_browser(name: &str) -> Browser {
