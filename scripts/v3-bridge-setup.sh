@@ -142,8 +142,8 @@ PRIV
         fi
 
         if $NEED_UDEV_RULE; then
-            cat <<PRIV
-cat > /etc/udev/rules.d/99-kvmfr.rules <<'UDEV'
+            cat <<'PRIV'
+cat > /etc/udev/rules.d/99-kvmfr.rules <<UDEV
 SUBSYSTEM=="kvmfr", OWNER="$NEON_USER", GROUP="kvm", MODE="0660"
 UDEV
 udevadm control --reload-rules
