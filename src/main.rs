@@ -152,12 +152,13 @@ enum Command {
     /// Bridge a URL to a guest VM with hardware-backed Widevine
     /// (experimental; requires the `experimental-bridge` Cargo feature).
     ///
-    /// V3-Phase A scaffolding ships this as a stub that returns a
-    /// "queued for V3" error pointing at ROADMAP.md. The real
-    /// implementation (QEMU/KVM + Win11 IoT LTSC + Looking Glass +
-    /// GPU/TPM passthrough) lands after V1.0 stabilizes.
+    /// V3-Phase C ships `init` and `status`; the rest are stubs queued
+    /// for V3-Phase D / F.
     #[cfg(feature = "experimental-bridge")]
-    Stream(neon::cli::stream::Args),
+    Stream {
+        #[command(subcommand)]
+        sub: StreamSubcommand,
+    },
 }
 
 /// Reporting opt-in flag for `setup --reporting=...`.
@@ -183,6 +184,58 @@ enum UpdateTarget {
     /// Self-update the Neon binary from GitHub Releases.
     #[command(name = "self")]
     SelfUpdate,
+}
+
+/// `neon stream` subcommand group — V3-Phase C onward.
+#[cfg(feature = "experimental-bridge")]
+#[derive(Debug, Subcommand)]
+enum StreamSubcommand {
+    /// Provision the bridge VM (downloads ISO, defines libvirt domain,
+    /// runs unattended install, takes a snapshot). Single command;
+    /// ~30-45 minutes of unattended wait.
+    Init {
+        /// Accept the Microsoft 90-day evaluation license.
+        #[arg(long)]
+        accept_eval: bool,
+
+        /// Bring your own Windows product key (XXXXX-XXXXX-XXXXX-XXXXX-XXXXX).
+        #[arg(long, conflicts_with_all = ["accept_eval", "license_file"])]
+        license_key: Option<String>,
+
+        /// Path to a CSV / KMS key file.
+        #[arg(long, conflicts_with_all = ["accept_eval", "license_key"])]
+        license_file: Option<std::path::PathBuf>,
+    },
+
+    /// Show bridge VM status: defined? running? snapshot age? license expiry?
+    Status {
+        /// Emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Resume the bridge VM and open the URL in Edge inside the guest
+    /// (queued for V3-Phase D).
+    Start {
+        /// URL to open in the bridged browser.
+        url: String,
+    },
+
+    /// Snapshot + halt the bridge VM (queued for V3-Phase D).
+    Stop,
+
+    /// Detect + fix broken bridge state (queued for V3-Phase F).
+    Repair,
+
+    /// Remove the bridge VM, ISO, snapshots (queued for V3-Phase F).
+    Uninstall {
+        /// Also remove `~/.config/neon/bridge.toml`.
+        #[arg(long)]
+        purge: bool,
+    },
+
+    /// Show / change the bridge license posture (queued for V3-Phase F).
+    License,
 }
 
 fn main() -> ExitCode {
@@ -269,8 +322,34 @@ fn dispatch(cmd: Command, output: cli::OutputOptions) -> neon::Result<()> {
         Command::Completion { shell } => cli::completion::run(shell, Cli::command),
         Command::Manpage => cli::manpage::run(Cli::command),
         #[cfg(feature = "experimental-bridge")]
-        Command::Stream(args) => cli::stream::run(&args),
+        Command::Stream { sub } => dispatch_stream(sub, output),
     }
+}
+
+#[cfg(feature = "experimental-bridge")]
+fn dispatch_stream(sub: StreamSubcommand, output: cli::OutputOptions) -> neon::Result<()> {
+    use cli::stream;
+    let s = match sub {
+        StreamSubcommand::Init {
+            accept_eval,
+            license_key,
+            license_file,
+        } => stream::Subcommand::Init(stream::InitArgs {
+            accept_eval,
+            license_key,
+            license_file,
+            output,
+        }),
+        StreamSubcommand::Status { json } => {
+            stream::Subcommand::Status(stream::StatusArgs { json, output })
+        }
+        StreamSubcommand::Start { url } => stream::Subcommand::Start { url, output },
+        StreamSubcommand::Stop => stream::Subcommand::Stop { output },
+        StreamSubcommand::Repair => stream::Subcommand::Repair { output },
+        StreamSubcommand::Uninstall { purge } => stream::Subcommand::Uninstall { purge, output },
+        StreamSubcommand::License => stream::Subcommand::License { output },
+    };
+    stream::run(s)
 }
 
 /// Map an [`Error`]'s category to a stable exit code.

@@ -61,40 +61,9 @@ fn local_file_cdm_populate_round_trips() {
     assert_eq!(std::fs::read(&dest_so).expect("read so"), b"\x7fELF-stub");
 }
 
-/// V3-Phase A: with the `experimental-bridge` feature on, invoking
-/// `neon stream <url>` exits with a non-zero status and prints a
-/// stub-error message that mentions V3 and ROADMAP.
-///
-/// Compiled only under `--features experimental-bridge`. The binary
-/// path is provided by Cargo at build time via
-/// `env!("CARGO_BIN_EXE_neon")`, which guarantees the binary was built
-/// with the same feature set as this test.
-#[cfg(feature = "experimental-bridge")]
-#[test]
-fn stream_subcommand_returns_stub_error() {
-    let bin = env!("CARGO_BIN_EXE_neon");
-    let output = Command::new(bin)
-        .args(["stream", "https://example.com"])
-        .output()
-        .expect("spawn neon binary");
-    assert!(
-        !output.status.success(),
-        "stream stub must exit non-zero (status was {:?})",
-        output.status
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("V3"),
-        "stub error must mention V3; got: {stderr}"
-    );
-    assert!(
-        stderr.contains("ROADMAP"),
-        "stub error must point at ROADMAP; got: {stderr}"
-    );
-}
-
-/// V3-Phase A: with the feature on, `neon stream --help` succeeds —
-/// the subcommand is visible.
+/// V3-Phase C: with the feature on, `neon stream --help` succeeds and
+/// lists the new subcommand group (init, status, start, stop, repair,
+/// uninstall, license).
 ///
 /// Compiled only under `--features experimental-bridge`.
 #[cfg(feature = "experimental-bridge")]
@@ -110,9 +79,71 @@ fn stream_subcommand_help_succeeds_with_feature_on() {
         "neon stream --help must succeed when feature is on"
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
+    for sub in &[
+        "init",
+        "status",
+        "start",
+        "stop",
+        "repair",
+        "uninstall",
+        "license",
+    ] {
+        assert!(
+            stdout.contains(sub),
+            "neon stream --help should list `{sub}`; got: {stdout}"
+        );
+    }
+}
+
+/// V3-Phase C: `neon stream start <url>` (V3-Phase D stub) exits
+/// non-zero with a "queued for V3-Phase D" error.
+#[cfg(feature = "experimental-bridge")]
+#[test]
+fn stream_start_returns_phase_d_stub() {
+    let bin = env!("CARGO_BIN_EXE_neon");
+    let output = Command::new(bin)
+        .args(["stream", "start", "https://example.com"])
+        .output()
+        .expect("spawn neon binary");
     assert!(
-        stdout.contains("URL"),
-        "stream --help should describe the URL argument; got: {stdout}"
+        !output.status.success(),
+        "stream start stub must exit non-zero (status was {:?})",
+        output.status
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("V3-Phase D"),
+        "stub error must mention V3-Phase D; got: {stderr}"
+    );
+}
+
+/// V3-Phase C: `neon stream init` runs end-to-end under per-step NOOP
+/// env vars. The provision flow under `NEON_TEST_PROVISION_NOOP=1`
+/// returns success without spawning any libvirt or downloads. We
+/// also redirect XDG_CONFIG_HOME so the bridge.toml save lands in a
+/// tempdir.
+#[cfg(feature = "experimental-bridge")]
+#[test]
+fn stream_init_under_provision_noop_succeeds() {
+    let tmp = tempfile::TempDir::new().expect("tempdir");
+    let bin = env!("CARGO_BIN_EXE_neon");
+    let output = Command::new(bin)
+        .args(["stream", "init", "--accept-eval"])
+        .env("NEON_TEST_PROVISION_NOOP", "1")
+        .env("NEON_TEST_CAPS_NOOP", "1")
+        .env("XDG_CONFIG_HOME", tmp.path())
+        .output()
+        .expect("spawn neon binary");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Either the capability check passes or fails on this host — both
+    // are acceptable. We only assert the binary runs without panicking
+    // and either prints success or surfaces a categorized error.
+    let combined = format!("{stdout}\n{stderr}");
+    assert!(
+        output.status.success() || combined.contains("capability gate FAILED"),
+        "expected success or remediation; got status {:?} combined={combined}",
+        output.status
     );
 }
 
