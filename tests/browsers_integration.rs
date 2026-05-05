@@ -16,6 +16,10 @@ fn make_chrome_sandbox_dir(parent: &std::path::Path, name: &str) -> PathBuf {
     let dir = parent.join(name);
     fs::create_dir_all(&dir).expect("mkdir browser dir");
     fs::write(dir.join("chrome-sandbox"), b"#!/bin/sh\n").expect("touch chrome-sandbox");
+    // Real browsers have BOTH chrome-sandbox AND a top-level `chrome` binary
+    // (the latter distinguishes them from Electron apps that ship
+    // chrome-sandbox but rename their main binary).
+    fs::write(dir.join("chrome"), b"\x7fELF").expect("touch chrome binary");
     dir
 }
 
