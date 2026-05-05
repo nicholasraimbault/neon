@@ -37,8 +37,10 @@ Known issue (not blocking): pre-existing flake in `daemon::lifecycle::tests` env
 | 5 — Distribution + docs | **Done** | README/MIGRATION/ROADMAP/CONTRIBUTING/SECURITY/CHANGELOG/COC/issue templates; infra agent partial (content filter), orchestrator finished |
 | 6 — Beta + release | Deferred | Nick to decide whether to ship V2 standalone or wait for V3 |
 | V3-A — Scaffolding | **Done** | 6 commits; CdmProvider trait; bridge stub; feature flag; 466/469 tests both paths |
-| V3-B — Hardware capability detection | In progress | platform team (single agent, serial); also addressing pre-existing env_mutex flake |
-| V3-C through F | Pending | Per V3 orchestration plan |
+| V3-B — Hardware capability detection | **Done** | 5 commits; BridgeCapabilities API; per-vendor remediation; env_mutex flake fixed; 494/508 tests; **first hardware-acceptance gate passed on Nick's actual machine** |
+| V3-C — Windows guest provisioning | In progress | bridge team (single agent, serial); the heaviest V3 phase |
+| V3-D, F | Pending | Per V3 orchestration plan |
+| V3-E — CDM forwarding | Deferred to V3.1 | Decided pre-execution |
 | 3 — Daemon | Pending | daemon + platform (parallel) |
 | 4 — CLI completion | Pending | cli sequential |
 | 5 — Distribution + docs | Pending | infra + platform |
