@@ -32,6 +32,11 @@ pub struct Args {
     pub dry_run: bool,
     /// Optional positional arg: only patch the named browser.
     pub browser: Option<String>,
+    /// `--as-root`: this invocation is the privileged child of an earlier
+    /// `pkexec` / `sudo` / `osascript` escalation. Hidden CLI flag — end
+    /// users never set this. Wires the patch flow's same-filesystem
+    /// snapshot path and skips the writability/escalation check.
+    pub as_root: bool,
     /// Output flags.
     pub output: OutputOptions,
 }
@@ -201,6 +206,7 @@ pub fn run(args: &Args) -> Result<()> {
     let options = PatchOptions {
         force_while_running: args.force,
         dry_run: args.dry_run,
+        as_root: args.as_root,
         ..Default::default()
     };
     let reports = run_patch_flow(
@@ -394,6 +400,7 @@ mod tests {
             dry_run: true,
             lock_path: Some(tmp.path().join("patch.lock")),
             backups_dir: Some(tmp.path().join("backups")),
+            as_root: false,
         };
         let reports = run_patch_flow(
             &browsers_list,

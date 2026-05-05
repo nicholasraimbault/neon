@@ -81,6 +81,16 @@ Once V1.0 ships, future entries will be auto-generated from
 - Migration cleanup of legacy systemd units and LaunchDaemons no longer
   produces N separate password prompts; batches into one `pkexec` / `sudo` /
   `osascript` invocation via the new `platform::run_as_root_script` helper.
+- patch privilege escalation: `neon patch` now correctly escalates via
+  pkexec/sudo when the target install path requires root, rather than
+  silently failing with EACCES
+- patch backup location: same-filesystem sibling directory under
+  `<install-parent>/.neon-backups/` instead of `~/.cache/neon/backups/`,
+  so atomic_rename rollback works (was failing with EXDEV when /opt and
+  /home were different filesystems)
+- patch restore: only attempted when `perform_patch` actually modified
+  the original; pre-modification failures no longer trigger an
+  incorrect restore
 
 ### Security
 

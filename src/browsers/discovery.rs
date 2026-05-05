@@ -132,8 +132,7 @@ fn discover_linux(roots: &FilesystemRoots) -> Vec<Browser> {
 /// (`electron`, `signal-desktop`, `tutanota-desktop`, etc.). The (2)
 /// check filters them out.
 fn has_chromium_sandbox(dir: &Path) -> bool {
-    let has_sandbox = dir.join("chrome-sandbox").exists()
-        || dir.join("chromium-sandbox").exists();
+    let has_sandbox = dir.join("chrome-sandbox").exists() || dir.join("chromium-sandbox").exists();
     if !has_sandbox {
         return false;
     }
