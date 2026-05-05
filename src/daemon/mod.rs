@@ -174,6 +174,8 @@ pub fn run_with(options: &RunOptions) -> Result<()> {
             .map(|b| BrowserMenuEntry::from_browser(b, b.is_patched()))
             .collect(),
         launch_at_login: lifecycle_is_registered(),
+        #[cfg(feature = "experimental-bridge")]
+        bridge: build_initial_bridge_state(),
     };
 
     // Build tray. Failures fall through to a headless tray — daemon
@@ -609,6 +611,26 @@ fn run_event_loop(tray: &Tray, stop: &Arc<AtomicBool>, single_iteration: bool) -
                     notify_user::notify_failure(e.category, &e.message);
                 }
             }
+            #[cfg(feature = "experimental-bridge")]
+            Some(TrayCommand::StreamUrl(url)) => {
+                tracing::info!(target: "neon::daemon", url = %url, "tray StreamUrl");
+                handle_stream_url(url);
+            }
+            #[cfg(feature = "experimental-bridge")]
+            Some(TrayCommand::BridgePause) => {
+                tracing::info!(target: "neon::daemon", "tray BridgePause");
+                handle_bridge_pause();
+            }
+            #[cfg(feature = "experimental-bridge")]
+            Some(TrayCommand::BridgeResume) => {
+                tracing::info!(target: "neon::daemon", "tray BridgeResume");
+                handle_bridge_resume();
+            }
+            #[cfg(feature = "experimental-bridge")]
+            Some(TrayCommand::BridgeRepair) => {
+                tracing::info!(target: "neon::daemon", "tray BridgeRepair");
+                handle_bridge_repair();
+            }
             None => {
                 std::thread::sleep(Duration::from_millis(100));
             }
@@ -616,6 +638,131 @@ fn run_event_loop(tray: &Tray, stop: &Arc<AtomicBool>, single_iteration: bool) -
         if single_iteration {
             return Ok(());
         }
+    }
+}
+
+/// Build the initial V3 bridge menu state, reading any persisted
+/// posture so the eval-days indicator surfaces immediately on tray
+/// startup. Best-effort: if `bridge.toml` is missing we return defaults.
+#[cfg(feature = "experimental-bridge")]
+fn build_initial_bridge_state() -> tray::BridgeMenuState {
+    use crate::bridge::license::{self, LicensePosture};
+    let posture = license::current_posture().ok().flatten();
+    let eval_days_remaining = posture.as_ref().and_then(LicensePosture::days_until_expiry);
+    let ready = posture.is_some();
+    tray::BridgeMenuState {
+        ready,
+        paused: false,
+        snapshot_age_hours: None,
+        eval_days_remaining,
+    }
+}
+
+/// Tray dispatch: user clicked a streaming quick-launch.
+///
+/// Spawns a detached thread that invokes `cli::stream::start::run` with
+/// the URL. Empty URL = "Stream… (custom URL)" — V3-Phase F adds an
+/// interactive prompt; for now we log a TODO.
+///
+/// Honors [`DAEMON_PATCH_NOOP_ENV`] so tests don't actually invoke
+/// stream start (which would try to talk to libvirt).
+#[cfg(feature = "experimental-bridge")]
+fn handle_stream_url(url: String) {
+    if daemon_patch_noop() {
+        return;
+    }
+    if url.is_empty() {
+        // V3-Phase F: open a URL-prompt dialog. For V3-Phase D we log
+        // a TODO message and emit an info notification.
+        tracing::info!(
+            target: "neon::daemon",
+            "tray StreamUrl with empty URL: V3-Phase F adds the prompt; for now run \
+             `neon stream start <url>` from the command line"
+        );
+        notify_user::notify_info(
+            "Stream… (custom URL): V3-Phase F adds the prompt. \
+             Run `neon stream start <url>` from the command line.",
+        );
+        return;
+    }
+    std::thread::Builder::new()
+        .name("neon-stream-launch".to_string())
+        .spawn(move || {
+            let args = crate::cli::stream::start::Args {
+                url: Some(url),
+                output: crate::cli::OutputOptions::default(),
+            };
+            if let Err(e) = crate::cli::stream::start::run(&args) {
+                tracing::warn!(
+                    target: "neon::daemon",
+                    error = %e,
+                    "tray StreamUrl: cli::stream::start failed"
+                );
+                notify_user::notify_failure(e.category, &e.message);
+            }
+        })
+        .ok();
+}
+
+/// Tray dispatch: pause the running bridge VM via libvirt.
+#[cfg(feature = "experimental-bridge")]
+fn handle_bridge_pause() {
+    if daemon_patch_noop() {
+        return;
+    }
+    if let Err(e) = bridge_lifecycle("pause") {
+        tracing::warn!(target: "neon::daemon", error = %e, "BridgePause failed");
+        notify_user::notify_failure(e.category, &e.message);
+    }
+}
+
+/// Tray dispatch: resume the bridge VM from snapshot.
+#[cfg(feature = "experimental-bridge")]
+fn handle_bridge_resume() {
+    if daemon_patch_noop() {
+        return;
+    }
+    if let Err(e) = bridge_lifecycle("resume") {
+        tracing::warn!(target: "neon::daemon", error = %e, "BridgeResume failed");
+        notify_user::notify_failure(e.category, &e.message);
+    }
+}
+
+/// Tray dispatch: V3-Phase F repair flow. Emits a TODO log line + info
+/// notification for V3-Phase D — `cli::stream::repair::run` ships in F.
+#[cfg(feature = "experimental-bridge")]
+fn handle_bridge_repair() {
+    if daemon_patch_noop() {
+        return;
+    }
+    tracing::info!(
+        target: "neon::daemon",
+        "tray BridgeRepair: V3-Phase F wires `cli::stream::repair::run`. \
+         For V3-Phase D this is a TODO placeholder."
+    );
+    notify_user::notify_info(
+        "Bridge repair flow lands in V3-Phase F. \
+         For now, `neon stream init --accept-eval` re-provisions cleanly.",
+    );
+}
+
+/// Pause / resume the bridge domain via libvirt. Single helper so the
+/// tray dispatch handlers stay symmetric.
+#[cfg(feature = "experimental-bridge")]
+fn bridge_lifecycle(action: &str) -> Result<()> {
+    use crate::bridge::install::POST_INSTALL_SNAPSHOT;
+    use crate::bridge::libvirt::Hypervisor;
+    let hv = Hypervisor::connect()?;
+    let domain = hv.lookup_domain("neon-bridge")?;
+    match action {
+        "pause" => domain.stop(),
+        "resume" => {
+            domain.restore_from_snapshot(POST_INSTALL_SNAPSHOT)?;
+            domain.start()
+        }
+        _ => Err(crate::error::Error::other(format!(
+            "unknown bridge action {action:?}"
+        ))),
     }
 }
 
@@ -1013,6 +1160,8 @@ mod tests {
         let initial = MenuState {
             browsers: vec![],
             launch_at_login: false,
+            #[cfg(feature = "experimental-bridge")]
+            bridge: tray::BridgeMenuState::default(),
         };
         let t = build_tray_with_fallback(initial, true);
         assert!(!t.has_ui());
@@ -1057,6 +1206,8 @@ mod tests {
         let tray = Tray::headless(MenuState {
             browsers: vec![],
             launch_at_login: false,
+            #[cfg(feature = "experimental-bridge")]
+            bridge: tray::BridgeMenuState::default(),
         });
         let stop = Arc::new(AtomicBool::new(false));
         // Synthesize a Quit before calling the loop.
@@ -1072,6 +1223,8 @@ mod tests {
         let tray = Tray::headless(MenuState {
             browsers: vec![],
             launch_at_login: false,
+            #[cfg(feature = "experimental-bridge")]
+            bridge: tray::BridgeMenuState::default(),
         });
         let stop = Arc::new(AtomicBool::new(false));
         run_event_loop(&tray, &stop, true).unwrap();
@@ -1083,6 +1236,8 @@ mod tests {
         let tray = Tray::headless(MenuState {
             browsers: vec![],
             launch_at_login: false,
+            #[cfg(feature = "experimental-bridge")]
+            bridge: tray::BridgeMenuState::default(),
         });
         let stop = Arc::new(AtomicBool::new(true));
         run_event_loop(&tray, &stop, false).unwrap();
@@ -1123,6 +1278,8 @@ mod tests {
         let tray = Tray::headless(MenuState {
             browsers: vec![],
             launch_at_login: false,
+            #[cfg(feature = "experimental-bridge")]
+            bridge: tray::BridgeMenuState::default(),
         });
         let stop = Arc::new(AtomicBool::new(false));
         tray.synthesize(TrayCommand::ToggleLaunchAtLogin(true));
@@ -1138,6 +1295,8 @@ mod tests {
         let tray = Tray::headless(MenuState {
             browsers: vec![],
             launch_at_login: false,
+            #[cfg(feature = "experimental-bridge")]
+            bridge: tray::BridgeMenuState::default(),
         });
         let stop = Arc::new(AtomicBool::new(false));
         tray.synthesize(TrayCommand::PatchAll);
@@ -1152,6 +1311,8 @@ mod tests {
         let tray = Tray::headless(MenuState {
             browsers: vec![],
             launch_at_login: false,
+            #[cfg(feature = "experimental-bridge")]
+            bridge: tray::BridgeMenuState::default(),
         });
         let stop = Arc::new(AtomicBool::new(false));
         tray.synthesize(TrayCommand::PatchOne("Helium".into()));
@@ -1166,6 +1327,8 @@ mod tests {
         let tray = Tray::headless(MenuState {
             browsers: vec![],
             launch_at_login: false,
+            #[cfg(feature = "experimental-bridge")]
+            bridge: tray::BridgeMenuState::default(),
         });
         let stop = Arc::new(AtomicBool::new(false));
         tray.synthesize(TrayCommand::UpdateWidevine);
