@@ -121,13 +121,16 @@ If you're using regular Chrome, regular Edge, regular Brave, or Firefox — you 
 - On Linux: any tray bar that speaks the StatusNotifierItem protocol — KDE Plasma, sway/Hyprland with waybar, Quickshell-based shells (noctalia, Caelestia), Cinnamon, etc. Vanilla GNOME [removed tray support in 2017](https://blogs.gnome.org/aday/2017/08/31/status-icons-and-gnome/) and needs the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/). Without a working tray bar, the daemon falls back to notifications-only.
 - A Chromium-family browser to patch.
 
-ARM64 Linux (Asahi, Pi) is **not** supported in V1 — see [ROADMAP.md](ROADMAP.md) for V2 plans (proper ELF binary patching).
-Windows is **not** supported in V1 — see [ROADMAP.md](ROADMAP.md) for V2 plans.
+ARM64 Linux (Asahi, Pi) is **not** supported in V2 — see [ROADMAP.md](ROADMAP.md) for the future ELF-patching plan. Windows is **not** supported in V2 — see [ROADMAP.md](ROADMAP.md) for the contributor-driven port.
+
+## Project posture
+
+Neon is maintained by one person on an **Arch Linux laptop**. Arch (and Arch-like distros) get first-class testing. **macOS, Debian / Ubuntu, Fedora / RHEL, Windows, and ARM64 are best-effort and contributor-driven** — Nick can write the code but needs people on those platforms to verify it works and file issues when it doesn't. See [ROADMAP.md](ROADMAP.md#maintenance-posture) for details and a list of items currently tagged `[needs <platform> verifier]`. PRs on those platforms are very welcome.
 
 ## Documentation
 
-- [MIGRATION.md](MIGRATION.md) — upgrading from V1 (bash, Homebrew, DMG, AUR, .deb)
-- [ROADMAP.md](ROADMAP.md) — V1.1 / V2 / V3 plans
+- [MIGRATION.md](MIGRATION.md) — upgrading from V1 (bash, Homebrew, DMG, AUR, .deb / .rpm)
+- [ROADMAP.md](ROADMAP.md) — V2.1 / V3 / future plans, maintenance posture
 - [CONTRIBUTING.md](CONTRIBUTING.md) — dev setup, conventional commits, PR conventions
 - [SECURITY.md](SECURITY.md) — disclosure policy, supported versions
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Contributor Covenant 2.1

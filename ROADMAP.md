@@ -1,189 +1,140 @@
 # Neon Roadmap
 
-This document covers what's shipped, what's queued, and what's a stretch goal. Read alongside the [V2 design spec](docs/superpowers/specs/2026-05-04-neon-rust-rewrite-design.md).
+What's shipped, what's queued, what's a stretch goal, and who has to do it.
+
+## Maintenance posture
+
+Neon is maintained by [@nicholasraimbault](https://github.com/nicholasraimbault) on an Arch Linux laptop. **Arch (and Arch-like distros) get first-class testing.** Everything else is best-effort and contributor-driven:
+
+- **macOS** — builds and lints cleanly in CI; functional verification depends on Mac users running the binary and filing issues. The Homebrew tap is intentionally pinned at V1 until V2 has been validated end-to-end on a real Mac.
+- **Debian / Ubuntu / Fedora / RHEL** — V2's musl binary *runs*, but `.deb` / `.rpm` packaging and distro-specific migration paths need volunteers from those distros to verify.
+- **Windows** — speculative, contributor-driven entirely. The protocol is sketched below; the code isn't.
+- **ARM64 Linux** — not in V2's target list; needs Apple Silicon Asahi research or a maintainer with hardware.
+
+Items below tagged `[contributor]` or `[needs <platform> verifier]` aren't blocked on Nick — they're blocked on someone who actually uses that platform stepping up. Open an issue when something breaks, send a PR when you fix it. The project will move at the speed of contributors on platforms Nick can't run.
 
 ## V2.0 — current (shipped as `v2.0.0-rc.1`; stable in ~1 week)
 
-The first stable Neon release goes out as **V2.0** — the prior bash + Swift + Go implementation is V1.x in retrospect (it shipped as `v1.0.0`). The `v2-rust-rewrite` branch name became `v2.0` and then merged to `master`; the public version follows.
+V2 is the first Rust-rewrite release. The prior bash + Swift + Go implementation shipped as `v1.0.0` and is V1.x in retrospect. V2 ships:
 
-V2.0 ships:
+- **Single-binary cross-platform CLI + tray daemon.** ~10 MB statically-linked Rust binary; same code path on macOS (x86_64 + aarch64) and Linux (x86_64-musl).
+- **Atomic patching with rollback.** `renameat2(RENAME_EXCHANGE)` on Linux (via `syscall(SYS_renameat2, …)` for musl compat); `renameatx_np(RENAME_SWAP)` on macOS. Snapshots every patch to `<install-parent>/.neon-backups/`; restore on any failure.
+- **Browser-running detection.** Defers patches when the browser is running; retries when it quits (mtime-stable + 1h hard cap).
+- **Tray icon + native notifications.** `ksni` on Linux (StatusNotifierItem directly over D-Bus — zero GTK / libappindicator runtime dep); `tray-icon` on macOS; `notify-rust` for notifications.
+- **Mozilla manifest URL fallback chain.** `hg.mozilla.org` → GitHub mirror → 24h on-disk cache.
+- **`neon doctor` with EME error-code translation** across Netflix, Disney+, HBO Max, Spotify, Hulu; `--share` produces a pre-filled GitHub issue URL.
+- **`neon repair`.** Uninstall + setup composition; preserves user config.
+- **Opt-in error reporting.** Cloudflare Worker + D1. Default off. No PII; only categorized failures.
+- **Migration from V1.** Detects bash installs and packaged installs (AUR / .deb / .rpm) with a pkg-manager-aware uninstall hint sniffed from `/etc/os-release`. Probes `/etc/systemd/system/`, `/usr/lib/systemd/system/`, `/lib/systemd/system/`; dedupes merged-usr symlinks. See [MIGRATION.md](MIGRATION.md).
+- **Sleep/wake hooks.** `NSWorkspaceDidWakeNotification` on macOS; `org.freedesktop.login1.PrepareForSleep` on Linux.
+- **Distribution.** `cargo-dist`-driven `curl … | sh` installer + tarballs at GitHub Releases. AUR PKGBUILD ships V1 today; will switch to V2-bin after V2.0 stable. Homebrew tap holds V1 during the rc — V2 auto-publish wires up once macOS is validated end-to-end (`[needs macOS verifier]`).
 
-- **Single-binary cross-platform CLI + tray daemon.** ~10 MB statically-linked Rust binary; same code path on macOS (x86_64 + aarch64) and Linux (x86_64-musl). Replaces the V1 bash + Swift + Go triple-implementation.
-- **Atomic patching with rollback.** `renameat2(RENAME_EXCHANGE)` on Linux (invoked via `syscall(SYS_renameat2, …)` for musl compat), `renameatx_np(RENAME_SWAP)` on macOS, two-step fallback otherwise. Snapshots every patch to `<install-parent>/.neon-backups/` (same-fs to avoid EXDEV); restore on any failure.
-- **Browser-running detection.** Refuses to patch a running browser by default; daemon defers + retries when the browser quits (mtime stable for 30s, hard cap 1h).
-- **Tray icon + native notifications.** `ksni` on Linux (StatusNotifierItem directly over D-Bus — zero GTK / libappindicator runtime dep); `tray-icon` (NSStatusItem) on macOS; `notify-rust` for notifications. macOS lacks notification action buttons (platform limitation); Linux has full button support.
-- **Mozilla manifest URL fallback chain.** Primary: `hg.mozilla.org`. Fallback: GitHub `mozilla-firefox/firefox` mirror. Final: 24h-cached manifest.
-- **`neon doctor` with EME error-code translation.** 14 codes across 5 services (Netflix, Disney+, HBO Max, Spotify, Hulu) mapped to actionable advice. `--share` produces a pre-filled GitHub issue URL.
-- **`neon repair`.** uninstall + setup composition; preserves user config.
-- **Opt-in error reporting.** Cloudflare Worker + D1 SQLite backend. Default off. Asked during `neon init`. No PII; only categorized failures.
-- **Migration from V1.** Detects + cleans up legacy bash installs and packaged installs (AUR, .deb, .rpm) with a pkg-manager-aware uninstall hint sniffed from `/etc/os-release` (Arch → `pacman -R`, Debian → `dpkg -r`, Fedora → `rpm -e` / `dnf remove`). Probes `/etc/systemd/system/`, `/usr/lib/systemd/system/`, and `/lib/systemd/system/`; deduplicates merged-usr symlinks. See [MIGRATION.md](MIGRATION.md).
-- **Sleep/wake hooks.** macOS `NSWorkspaceDidWakeNotification` (objc2 FFI); Linux `org.freedesktop.login1.Manager.PrepareForSleep` (zbus). Re-verifies all browser patches after wake.
-- **Distribution.** `cargo-dist`-driven `curl | sh` installer + macOS/Linux binary tarballs at GitHub Releases. AUR PKGBUILD ships V1 today; will switch to V2-bin after V2.0 stable. Homebrew tap (`nicholasraimbault/homebrew-neon`) holds V1 during the rc — V2 auto-publish wires up once macOS is validated end-to-end. `.deb` / `.rpm` deferred to V2.1.
-
-Phase 6 of the orchestration plan covers the V2.0 rc period — pinned-issue tester recruitment, fix dispatch by error category, eventual `v2.0.0` tag.
+The rc.1 window is for soaking the V1→V2 migration paths on real machines. Bug reports during this window get prioritized; the `v2.0.0` stable tag follows when the rc has had a quiet ~week.
 
 ## V2.1 — queued
 
-Targeted at the first six months post-V2.0 ship. Driven by user demand observed during the rc + early prod.
+First six months post-V2.0. Driven by what surfaces during the rc and early prod.
 
 ### Distribution channels
 
-- **AUR package** for Arch users. Probably published as `neon-bin` (downloads cargo-dist artifact) plus `neon-git` (builds from source). Coordination with V0's `neon-drm` AUR maintainer to claim the namespace cleanly.
-- **.deb package** for Debian/Ubuntu via [`cargo-deb`](https://github.com/kornelski/cargo-deb). Auto-built in the cargo-dist release pipeline once the V1 distribution story is stable. Includes a `postinst` that nudges users toward `neon setup`.
-- **`.rpm` package** if anyone asks. `cargo-generate-rpm` available; not a high priority.
-- **`zipsign` artifact signing.** cargo-dist 0.31 doesn't natively produce zipsign signatures. We add a post-build signing step in `release.yml` that signs each artifact with a private key from a GitHub secret. The `self_update` crate's `signatures` feature can then verify on update. Public key embedded in the binary at build time. Requires Nick to generate a keypair.
+- **AUR package** — `neon-bin` (downloads cargo-dist artifact) + `neon-git` (builds from source). Replaces the V1 `neon-drm` PKGBUILD.
+- **`.deb` package** for Debian / Ubuntu via [`cargo-deb`](https://github.com/kornelski/cargo-deb), auto-built in the cargo-dist release pipeline. `[needs Debian/Ubuntu verifier]`
+- **`.rpm` package** via `cargo-generate-rpm`. `[needs Fedora/RHEL verifier]`
+- **`zipsign` artifact signing.** Post-build sign step in `release.yml` using a keypair stored in a GitHub secret. The `self_update` crate's `signatures` feature verifies on update; public key embedded in the binary at build time.
 
 ### Diagnostics + media-stack helpers
 
-- **`neon doctor --media-stack`** — extends `neon doctor` to check codec presence (h264/h265/av1/vp9), HDR support (Wayland color management protocol availability + monitor capability + GPU driver), and GPU acceleration flags (VAAPI/VideoToolbox bindings active). Reports a "media stack health" summary with concrete fixes (install `libavcodec-extra-VERSION`; enable `chrome://flags#enable-webgpu-developer-features`; configure VAAPI in `chrome://flags#use-vaapi`).
-- **`neon configure-youtube-hdr`** — one-shot helper that flips the right flags + extension installation for YouTube HDR on supported configurations (Wayland + HDR display + HEVC codec). The actual recipe is documented in upstream Helium issue #N (referenced from the command).
-- **Codec presence detection** as a separate library module so `neon doctor` and `neon configure-youtube-hdr` share the logic.
+- **`neon doctor --media-stack`** — checks codec presence (h264/h265/av1/vp9), HDR support (Wayland color management + monitor + GPU driver), GPU-accel flags (VAAPI / VideoToolbox). Reports a "media stack health" summary with concrete fixes. Linux side by Nick; macOS VideoToolbox detection `[needs macOS verifier]`.
+- **`neon configure-youtube-hdr`** — one-shot helper that flips the right flags + installs the right extension for YouTube HDR on supported configurations (Wayland + HDR display + HEVC). Linux-only at the start.
+- **Codec presence detection** as a shared library module so `neon doctor` and `neon configure-youtube-hdr` share the logic.
 
 ### Operational improvements
 
-- **Pre-patch hooks** (currently only post-patch / post-update ship). `~/.config/neon/hooks/pre-patch` runs before each patch; non-zero exit aborts the patch.
-- **`neon log` TUI viewer** — interactive viewer over the daily-rotated log files at `~/.cache/neon/logs/`. ratatui-based; filter by category, browser, time window.
-- **Schema versioning for IPC.** Add a `"version"` field to the JSON envelope, default 0 for backwards compatibility. Triggered by the first post-V1 schema change.
+- **Pre-patch hooks.** `~/.config/neon/hooks/pre-patch` runs before each patch; non-zero exit aborts. Symmetric with the existing post-patch / post-update hooks.
+- **`neon log` TUI viewer** — ratatui-based, over the daily-rotated logs at `~/.cache/neon/logs/`; filter by category, browser, time window.
+- **Schema versioning for IPC.** `"version"` field in the JSON envelope, default 0 for back-compat. Triggered by the first post-V2 schema change.
 
-## V2 — planned
+### macOS
 
-Targeted at the year+ horizon. Each item is multi-PR scope; some require platform research.
+- **Inside-out codesigning.** Apple deprecated `codesign --deep` in macOS 13. V2 still uses it (same as V1). V2.1 migrates to inside-out: sign the framework's `.dylib` first, then the framework, then the bundle. `[needs macOS contributor]`
 
-### Windows support
+## V3 — `neon stream` localhost-bridge (experimental, opt-in)
 
-There are multiple upstream issues on `vikas5914/helium-drm-fixer` (V0's predecessor) from Windows users asking for the same DRM-fix workflow. The Chromium DRM mechanics are similar enough on Windows that a port is straightforward in principle:
-
-- Bundle layout differs (no `.app`; `<install>/Application/<version>/`).
-- Privilege escalation differs (`runas verb`, UAC prompt).
-- Daemon registration differs (Windows Service or Task Scheduler entry).
-- File watching differs (`ReadDirectoryChangesW`; `notify` crate already abstracts this).
-- No `xattr` / `codesign` finalization; just `cp` + permission set.
-
-The `tray-icon` crate already supports Windows. Most of the cross-platform abstractions in `src/platform/` and `src/daemon/` will accept a third backend; the work is bounded.
-
-### ARM64 Linux with proper ELF binary patching
-
-V1 cuts ARM64 Linux because the V0 implementation used a hacky LaCrOS extraction that (the design spec verifies) probably doesn't actually work at runtime on Asahi / Pi. To do this properly, we need to port the [`widevine_fixup.py`](https://github.com/proprietary/chromeos-widevine-cdm-extractor) semantics to Rust:
-
-1. Extract Widevine from a ChromeOS LaCrOS aarch64 image.
-2. Patch the ELF binary's relocations + symbol references to work against vanilla glibc (LaCrOS uses musl-flavored glibc with non-standard symbol versions).
-3. Patch hardcoded 4K-page assumptions to work on 16K-page systems (Asahi).
-4. Output a patched `libwidevinecdm.so` that drops into Linux aarch64 Chromium-family browsers.
-
-This is bounded but involved — two-three weeks of focused work. Apple Silicon Macs already work in V1 via the Darwin_arm64 CDM that Mozilla ships; this is specifically about Asahi Linux + Raspberry Pi 4/5 + ARM Chromebooks running Linux.
-
-### Inside-out codesigning on macOS
-
-Apple deprecated `codesign --deep` as of macOS 13. V2 still uses it because that's what V1 used and the deprecation doesn't break things yet. V2.1 migrates to inside-out codesigning: sign the framework's `.dylib` first, then sign the framework, then sign the bundle. Each layer's signature is verifiable independently. Documented at `https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues`.
-
-## V3 — `neon stream` localhost-bridge (experimental in V2.x)
-
-**Status:** code-complete behind the `experimental-bridge` Cargo feature flag. **Ships as experimental, not promoted on the front page.** Default install (`curl | sh`) gets V2 only. Opt-in only via `cargo install neon --features experimental-bridge,experimental-bridge-libvirt`.
-
-### Hardware that actually works
-
-V3 requires a **dual-GPU host**. Verified working configurations (per Proxmox forum threads + V3 hardware acceptance):
-
-- **Desktop with iGPU + dGPU** (Intel UHD + NVIDIA RTX 2070+ recommended). Host runs on iGPU; guest gets dGPU; Looking Glass shows on iGPU display.
-- **Laptop with hybrid graphics** (NVIDIA Optimus / AMD Hybrid). Same architecture as desktop, laptop form factor.
-
-Hardware that does NOT work (be explicit):
-
-- **Single-GPU laptop** — Linux desktop has no GPU left while VM runs. Dummy plug doesn't fix this; nothing fixes it until Looking Glass IDD-host ships upstream (paused; no timeline).
-- **Single-GPU desktop without dummy plug** — same problem.
-- **AMD GPUs** — less verified than NVIDIA; PlayReady SL3000 attestation may or may not engage. Test before committing.
-- **Apple Silicon Mac** — V3 is Linux-only (macOS gets only `neon doctor --bridge` for capability detection, points users to Parallels/UTM).
-
-### Quality ceiling
-
-- **4K resolution: yes**, verified working on the configurations above.
-- **True HDR end-to-end: NO** — Looking Glass currently captures the guest framebuffer and tone-maps to SDR on the Linux host display because Wayland HDR through Looking Glass isn't ready. Users get 4K with tone-mapped HDR until the Wayland HDR + LG HDR passthrough confluence (~2026 estimated).
-- **Dolby Vision: NO** — needs licensed components Linux doesn't have.
-- **Netflix specifically**: confirmed 4K-SDR-with-tone-mapped-HDR.
-- **Disney+, HBO Max, Apple TV+**: less verified; some are stricter about VM detection.
-
-### Why ship V3 at all given the limitations
-
-Because the gap analysis was real: WinBoat (21k stars) explicitly walked away from Looking Glass complexity and shipped CPU-only RDP. Shadow.tech and similar cloud SaaS players ban VOD streaming in their ToS. There is no actively-maintained tool that does what V3 does. The audience is small (~50-200k de-Googled-browser users on dual-GPU Linux), but it's an empty space and our V3 fills it cleanly *for users who have the hardware*.
-
-For users without dual-GPU hardware (probably most of Neon's audience): **V2 at 720p is the right answer.** This is documented in [docs/v3/hardware-compat.md](docs/v3/hardware-compat.md) and on the V3 init wizard's capability gate, which refuses to provision when the host can't actually use it.
-
-- Architecture and scaffolding plan: [V3 scaffolding plan](docs/superpowers/specs/2026-05-04-neon-v3-localhost-bridge-scaffolding-plan.md)
-- Six-sub-phase orchestration: [V3 orchestration plan](docs/superpowers/plans/2026-05-04-neon-v3-orchestration-plan.md)
-- User-facing docs: [`docs/v3/`](docs/v3/) — hardware compat matrix, troubleshooting, license FAQ.
-
-Activated by:
+**Status:** scaffolding complete on Linux x86_64 with dual-GPU. **Not yet validated on real hardware end-to-end** — promoted off `experimental-bridge` only after a hardware-acceptance pass on at least one Intel iGPU + NVIDIA dGPU configuration. Ships behind the `experimental-bridge` Cargo feature flag — default `cargo install neon` builds zero V3 code. Opt-in:
 
 ```sh
 cargo install neon --features experimental-bridge,experimental-bridge-libvirt
 ```
 
-Once installed, the `neon stream` subcommand tree provisions a Windows
-guest VM, attaches it to the host's GPU + TPM via VFIO passthrough, and
-streams the guest desktop back via Looking Glass. The init wizard runs
-a hardware-capability gate first — refuses to proceed if the host
-can't actually deliver the feature. Every error path has specific
-remediation; `neon stream repair` recovers from broken state.
+The point of V3: Chromium-fork DRM tops out at L3 (~720p). V3 takes the hardware path — provisions a Win11 IoT LTSC VM with GPU + TPM passthrough, streams the guest desktop back via Looking Glass. Real signed Widevine in the guest's Edge means 4K playback the host browser can't reach.
 
-| Subcommand | Purpose |
-|---|---|
-| `neon stream init [--accept-eval | --license-key K | --license-file P]` | Provision the bridge VM (single command, ~30-45 min unattended) |
-| `neon stream start [URL]` | Resume VM + launch Looking Glass; opens URL in guest's Edge |
-| `neon stream stop` | Snapshot + halt cleanly |
-| `neon stream status [--json]` | VM state, snapshot age, license expiry, Sunshine reachability |
-| `neon stream repair [--auto] [--from-snapshot=NAME] [--refresh-snapshot]` | Detect + auto-fix broken state |
-| `neon stream uninstall [--purge]` | Clean teardown; `--purge` removes config too |
-| `neon stream license {show \| set \| rearm}` | Manage license posture |
-| `neon stream` (no args) | Auto-dispatch: `init` if not provisioned, `status` otherwise |
+### Hardware that works
 
+- **Desktop / laptop with iGPU + dGPU** (Intel UHD + NVIDIA RTX 2070+ recommended; AMD Hybrid / NVIDIA Optimus laptops likewise).
 
-The L3 ceiling is real. There's no software-only path to 4K HDR on a de-Googled Chromium fork. V3 takes the hardware path: a Win11 IoT VM with GPU + TPM passthrough, running Edge with a real signed Widevine binary, streamed back to the host via Looking Glass. **The user trades hardware (a second GPU and ~$5 in adapters) for a streaming experience that desktop-Linux DRM otherwise forbids.**
+### Hardware that doesn't
 
-The recipe:
+- **Single-GPU host** — Linux desktop has no GPU left while the VM runs. No mitigation until Looking Glass IDD-host ships upstream (paused; no timeline).
+- **AMD GPUs** — less verified than NVIDIA; PlayReady SL3000 attestation may or may not engage. `[needs AMD verifier]`
+- **Apple Silicon Mac** — V3 is Linux-only; macOS gets a capability-detect stub that points users at Parallels/UTM.
 
-1. **Win11 IoT LTSC** — free for evaluation; **BYO production license**. Neon never distributes Microsoft binaries; user provides their own LTSC license. HEVC is bundled in IoT LTSC at no extra cost (unlike retail Win11).
-2. **Looking Glass B7** — ultra-low-latency frame transport over a shared-memory ring buffer between host + guest (~3-5 ms vs. RDP's ~25-40 ms).
-3. **GPU passthrough via VFIO** — **dual-GPU host required** (single-GPU passthrough leaves the Linux host with no display).
-4. **TPM passthrough** via swtpm — Widevine L1 needs a TPM 2.0 endorsement key chain.
-5. **Looking Glass IDD driver** — paused upstream; mitigation is a $5 HDMI dummy plug, but only if you have dual GPUs to begin with.
+### Quality ceiling
 
-The known blockers, with honest mitigations:
+- **4K resolution: yes** (on configurations above).
+- **True HDR end-to-end: no** — Looking Glass tone-maps to SDR until the Wayland HDR + LG HDR confluence (~2026 estimated).
+- **Dolby Vision: no** — needs licensed components Linux doesn't have.
 
-| Blocker | Mitigation | Residual cost to user |
-|---|---|---|
-| Licensing grey-area for Win11 IoT LTSC | BYO posture; Neon never ships MS binaries | User finds + pins URL/SHA in `~/.config/neon/bridge.toml` |
-| Single-GPU laptop can't do it | None today; waits on Looking Glass IDD-host upstream | V3 not for laptops; use V2 instead |
-| HDR end-to-end needs Wayland HDR + LG HDR confluence | Settles at "4K with tone-mapped HDR" until ~2026 | Lower visual quality than what 4K HDR could be |
-| Pinned ISO URL/SHA goes stale | `bridge.toml` override lets users update without source edits | Periodic manual pin |
+The `neon stream init` wizard runs a hardware-capability gate that refuses to provision when the host can't actually deliver the feature. The subcommand surface (`init` / `start` / `stop` / `status` / `repair` / `uninstall` / `license`) is documented in `neon stream --help`; user-facing docs (hardware compat matrix, troubleshooting, license FAQ) live at [`docs/v3/`](docs/v3/).
 
-Niche pricing isn't a blocker because we ship it free as a feature flag — no separate product, no paywall. Users who can use it, can. Users who can't, get clear remediation telling them why.
+With the feature enabled, the binary grows ~5 MB and gains runtime deps on QEMU + KVM. Without it, the default ~10 MB build is unaffected. Win11 IoT LTSC is **BYO license** — Neon never distributes Microsoft binaries.
 
-The Cargo feature flag means it stays out of the default binary entirely. Default builds remain ~10 MB. With the feature, we add VM management + Looking Glass client glue (probably ~5 MB more, plus runtime deps for QEMU + KVM). The user opts into the complexity.
+## Future / unscheduled
 
-This is reach-extending work, not core mission. We'd build it because the L3 ceiling is the most-asked-about limitation in V0's issue tracker, and because the gap-analysis confirmed nobody else is filling the niche. See `docs/superpowers/teams/orchestrator/status.md` for the full gap-analysis decision record.
+Items with no release vehicle; gated on contributors or hardware Nick doesn't have.
+
+### Windows support `[contributor]`
+
+Chromium DRM mechanics on Windows are similar enough to macOS/Linux that a port is bounded:
+
+- Bundle layout: `<install>/Application/<version>/` (no `.app`).
+- Privilege escalation: `runas verb` + UAC prompt.
+- Daemon registration: Windows Service or Task Scheduler entry.
+- File watching: `ReadDirectoryChangesW` (the `notify` crate already abstracts this).
+- No `xattr` / `codesign` finalization.
+
+`tray-icon` already supports Windows; the cross-platform abstractions in `src/platform/` and `src/daemon/` will accept a third backend. The work lands when a Windows maintainer shows up — Nick has no Windows machine to develop or test against.
+
+### ARM64 Linux Widevine `[contributor / hardware]`
+
+V2 cuts ARM64 Linux because V1's LaCrOS-extraction approach probably never worked at runtime on Asahi / Pi. Doing it properly is two-three weeks of focused ELF patching:
+
+1. Extract Widevine from a ChromeOS LaCrOS aarch64 image.
+2. Patch relocations + symbol references against vanilla glibc (LaCrOS uses non-standard symbol versions).
+3. Patch hardcoded 4K-page assumptions for 16K-page Asahi systems.
+4. Output a patched `libwidevinecdm.so` that drops into Linux aarch64 Chromium-family browsers.
+
+This is specifically Asahi Linux + Raspberry Pi 4/5 + ARM Chromebooks running Linux. Apple Silicon Macs already work via the Darwin_arm64 CDM that Mozilla ships.
 
 ## Watch list (no commitment, just monitoring)
 
-- **Wayland HDR maturity.** The color management protocol landed in early 2025; KDE and GNOME compositors are still implementing. Once Helium / Thorium pick up first-class Wayland HDR support, `neon configure-youtube-hdr` becomes more useful and HDR matters more.
-- **Looking Glass IDD GA.** Currently paused upstream. If/when it ships, the V3 bridge story gets simpler (no dummy plug needed).
-- **AMD GIM consumer Radeon SR-IOV.** Currently SR-IOV is professional-tier only. If AMD ships SR-IOV on consumer Radeons, GPU passthrough for the V3 bridge becomes a single-GPU operation (no second card needed).
-- **HDCP 2.3 maturity.** Studios are starting to demand HDCP 2.3 over HDCP 2.2 for 4K HDR. If Linux GPU drivers ship full HDCP 2.3 support, more cards become eligible for the L1 path.
-- **Apple's deprecation of codesign --deep.** Currently deprecated but still working. If a future macOS removes it entirely, we MUST have V2's inside-out signing migration done.
+- **Wayland HDR maturity.** Once Helium / Thorium pick up first-class Wayland HDR, `neon configure-youtube-hdr` becomes more useful.
+- **Looking Glass IDD GA.** If/when it un-pauses upstream, V3 stops needing a dummy plug.
+- **AMD GIM consumer Radeon SR-IOV.** Would make V3 single-GPU on AMD.
+- **HDCP 2.3 maturity.** Could open more Linux GPU drivers to the L1 path.
+- **Apple removing `codesign --deep` entirely.** Forcing function for the V2.1 inside-out signing work.
 
 ## Out of scope (probably forever)
 
-- **Browser extension companion.** The Chromium sandbox prevents writing to the browser bundle from within an extension. This was investigated in V0 and is verified out of scope.
-- **Codec installation helpers.** Helium and Thorium ship full codec support already. Not Neon's job to install codecs the browser handles itself.
-- **Firefox / LibreWolf / Tor / Mullvad / Cromite support.** Firefox auto-downloads Widevine on x86_64 (needs no help). LibreWolf has a built-in toggle. Tor / Mullvad / Cromite explicitly reject DRM by design — patching them around their security model would break what their users want.
-- **Headless server / Docker image.** Neon needs a user session and a browser to be useful. Server images don't have either.
-- **Per-machine config sync.** XDG paths are user-local by design. If someone wants this, they can put `~/.config/neon/` on a syncthing share.
-- **Webhook integrations (Discord/Slack).** Out of scope for a desktop DRM helper.
+- **Browser extension companion.** The Chromium sandbox prevents writing to the browser bundle from within an extension.
+- **Codec installation helpers.** Helium and Thorium ship full codec support already.
+- **Firefox / LibreWolf / Tor / Mullvad / Cromite support.** Firefox auto-downloads Widevine on x86_64; LibreWolf has a built-in toggle; Tor / Mullvad / Cromite reject DRM by design — patching them around their security model would break what their users want.
+- **Headless server / Docker image.** Neon needs a user session and a browser to be useful.
+- **Per-machine config sync.** XDG paths are user-local by design. Use a Syncthing share if you want this.
+- **Webhook integrations (Discord / Slack).** Out of scope for a desktop DRM helper.
 - **`neon://` URL handler.** Solving for use cases that don't exist.
 
 ## Versioning
 
-V2 shipped at `v2.0.0-rc.1` and promotes to `v2.0.0` after the rc settles (~1 week). Breaking changes to the IPC protocol bump the major version. Breaking changes to the CLI surface require a deprecation cycle (one minor version warning, removal at next major). CHANGELOG entries auto-generated from conventional commits via release-please.
+V2 shipped at `v2.0.0-rc.1` and promotes to `v2.0.0` after the rc settles (~1 week). Breaking changes to the IPC protocol bump the major version. Breaking changes to the CLI surface require a deprecation cycle (one minor with a warning, removal at next major). CHANGELOG entries auto-generated from conventional commits via release-please.
 
-## Schedule
-
-This document is updated as items move between V2.0 / V2.1 / V3. Last updated: 2026-05-13.
+This document moves items between sections as they ship or get cut. Last updated: 2026-05-13.
