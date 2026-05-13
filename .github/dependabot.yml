@@ -1,0 +1,66 @@
+version: 2
+updates:
+  # Rust dependencies (workspace root).
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "rust"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    groups:
+      # Group all patch + minor updates of clap into one PR
+      # (avoids PR-per-clap-subcrate noise).
+      clap:
+        patterns:
+          - "clap"
+          - "clap_*"
+      # Group serde family.
+      serde:
+        patterns:
+          - "serde"
+          - "serde_*"
+      # Group tracing family.
+      tracing:
+        patterns:
+          - "tracing"
+          - "tracing-*"
+
+  # GitHub Actions (workflow YAML pinning).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+
+  # Cloudflare Worker (npm) deps.
+  - package-ecosystem: "npm"
+    directory: "/cloudflare-worker"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "cloudflare-worker"
+    commit-message:
+      prefix: "deps(worker)"
+      include: "scope"

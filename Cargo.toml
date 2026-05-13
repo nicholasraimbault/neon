@@ -1,0 +1,266 @@
+[package]
+name = "neon"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+authors = ["Nicholas Raimbault <nraimbault16@gmail.com>"]
+license = "MIT"
+description = "Single-binary cross-platform DRM (Widevine) helper for Chromium-family browsers"
+repository = "https://github.com/nicholasraimbault/neon"
+homepage = "https://github.com/nicholasraimbault/neon"
+readme = "README.md"
+keywords = ["drm", "widevine", "chromium", "helium", "thorium"]
+categories = ["command-line-utilities"]
+
+[lib]
+name = "neon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "neon"
+path = "src/main.rs"
+
+# V3 scaffolding feature flags. See:
+# - docs/superpowers/specs/2026-05-04-neon-v3-localhost-bridge-scaffolding-plan.md
+# - docs/superpowers/plans/2026-05-04-neon-v3-orchestration-plan.md
+#
+# Default builds compile no V3 code at all. Activating
+# `experimental-bridge` enables a stub `neon stream` subcommand that
+# returns a "queued for V3" error pointing users at ROADMAP.md. The real
+# V3 implementation (QEMU/KVM + Win11 IoT LTSC + Looking Glass + GPU/TPM
+# passthrough) lands after V1.0 stabilizes.
+#
+# Install with:
+#     cargo install neon --features experimental-bridge
+[features]
+default = []
+# Umbrella for all experimental features. Future flags may require this.
+experimental = []
+# V3 stretch: localhost-bridge for premium 4K HDR streaming.
+# Activates the `bridge` module and `neon stream` subcommand.
+#
+# Pulls in optional deps required by V3-Phase C (Windows guest
+# provisioning): `quick-xml` for unattended-XML parsing and
+# `indicatif` for progress UX. Builds and runs end-to-end under
+# the NEON_TEST_VIRT_NOOP=1 mock path without libvirt installed;
+# real-libvirt linkage requires the `experimental-bridge-libvirt`
+# feature (additive — both must be enabled together for actual VM
+# orchestration on a host with libvirt0 installed).
+#
+# Cargo install paths:
+#   cargo install neon --features experimental-bridge
+#       → builds the bridge module + tests + mock paths
+#   cargo install neon --features experimental-bridge,experimental-bridge-libvirt
+#       → adds real libvirt0 linkage; must have libvirt0 / libvirt-dev
+#         installed on the host
+experimental-bridge = [
+    "experimental",
+    "dep:quick-xml",
+    "dep:indicatif",
+]
+# Real libvirt0 linkage. Additive over `experimental-bridge`. Without
+# this flag, the bridge module's libvirt-rs path returns an explicit
+# error pointing the user at this feature.
+experimental-bridge-libvirt = [
+    "experimental-bridge",
+    "dep:virt",
+]
+
+[dependencies]
+clap = { version = "4.5", features = ["derive", "env"] }
+# Error handling — categorized errors per spec.
+thiserror = "2"
+# Serde + formats for manifest, config, and state files.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+# HTTPS for manifest fetch — rustls only (cargo-deny bans openssl).
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking", "json"] }
+# URL type used in the public `fetch_manifest` API.
+url = "2"
+# XDG / platform-conventional paths.
+dirs = "5"
+# `flock`-based exclusive lockfile.
+fs2 = "0.4"
+# SHA-512 verification for the Widevine CRX3 download (Phase 2).
+sha2 = "0.10"
+# CRX3 ZIP body extraction. Default features pull lots of compression
+# methods we don't need; only deflate is required for Mozilla's CRX3.
+zip = { version = "2", default-features = false, features = ["deflate"] }
+# Process scanning for browser-running detection (Phase 2).
+sysinfo = { version = "0.32", default-features = false, features = ["system"] }
+# Direct FFI for `renameat2(RENAME_EXCHANGE)` (Linux) and
+# `renameatx_np(RENAME_SWAP)` (macOS): used by `crate::platform` for the
+# atomic-rename helper. nix's renameat2 wrapper is gated on
+# `target_env = "gnu"` (excludes musl), and nix has no macOS swap wrapper,
+# so the platform module calls libc directly.
+libc = "0.2"
+# Structured logging used by daemon lifecycle / power modules. Other teams
+# (cli, daemon) will plug in `tracing-subscriber` for the runtime; the
+# library-level `tracing::info!`/`warn!` calls are no-ops without a
+# subscriber installed.
+tracing = "0.1"
+# Tracing subscriber — the daemon::run() entry point installs this so the
+# tracing!/warn!/info! calls scattered throughout the crate produce
+# structured stderr output during a tray run.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
+# Native desktop notifications (notify-rust → libnotify on Linux,
+# mac-notification-sys on macOS). macOS lacks action-button support
+# (verified upstream limitation); we feature-gate any action-button code
+# with `#[cfg(target_os = "linux")]`.
+notify-rust = "4"
+# Cross-platform filesystem watcher. Driven by inotify on Linux and
+# FSEvents on macOS under the hood. We use the synchronous `Watcher`
+# trait API; debouncing is done at our layer so we have full control of
+# the per-browser dispatch.
+notify = "8"
+# Tray icon UI is platform-split:
+#   - Linux: `ksni` — direct StatusNotifierItem implementation over
+#     D-Bus. Zero GTK dep; works natively with any compositor that
+#     speaks SNI (KDE Plasma, noctalia/Quickshell, sway+waybar,
+#     Hyprland+waybar, Cinnamon, etc.). Helium/Thorium/uChromium users
+#     skew toward minimal Arch/Fedora/NixOS where libappindicator isn't
+#     installed by default; ksni lets us render a tray with no extra
+#     packages on those systems.
+#   - macOS: `tray-icon` (Tauri's crate) for its NSStatusItem backend.
+#     We disable default features (libxdo for keyboard accelerators) we
+#     don't use.
+# Linux-only ksni declaration is in `[target.'cfg(target_os = "linux")'`.
+# macOS-only tray-icon declaration is in `[target.'cfg(target_os = "macos")'`.
+# Interactive prompts for `neon init`. The default features are fine for
+# our use; the crate gracefully falls back to non-interactive mode when
+# stdin isn't a TTY (we explicit-check `is_terminal()` at the call sites
+# anyway so we can switch to defaults without prompting).
+dialoguer = { version = "0.11", default-features = false }
+# Cross-platform terminal control for `neon status --watch`. We use only
+# the cursor + clear primitives; no async event polling needed.
+crossterm = { version = "0.27", default-features = false }
+# Shell completion script generation for `neon completion <shell>`.
+clap_complete = "4.5"
+# Man-page generation for `neon manpage`.
+clap_mangen = "0.2"
+# Self-update for `neon update self`. We use the rustls TLS backend to
+# stay consistent with the rest of the project; signature verification
+# (zipsign) is deferred to V1.1.
+self_update = { version = "0.41", default-features = false, features = ["rustls"] }
+# URL-encoding for the `neon doctor --share` issue-template URL builder.
+urlencoding = "2"
+# Tracing subscriber's rolling-file appender — used by `crate::log` to
+# rotate the daemon's `~/.cache/neon/logs/neon.log`.
+tracing-appender = "0.2"
+# Sandboxed temporary directories. Used by `patch::patch_browser` to
+# materialize CDM payloads from a `CdmProvider` into a staging directory
+# before handing to the platform write step. Same crate previously was
+# only a dev-dependency; promoting to a runtime dep for the V3 trait
+# scaffolding.
+tempfile = "3"
+# PNG decoder for the embedded tray icon. Used only by the Linux ksni
+# tray backend to convert `linux-app/neon.png` into the ARGB32 pixel
+# buffer ksni::Icon expects. ~70KB compile cost; smaller and more
+# focused than the full `image` crate, which we don't otherwise need.
+png = "0.17"
+
+# V3-Phase C deps — gated on the `experimental-bridge` Cargo feature so
+# the default V2 build doesn't pull them in. `quick-xml` parses the
+# generated `autounattend.xml` for schema validation; `indicatif`
+# powers the install progress bars in `cli::stream::init`.
+quick-xml = { version = "0.36", optional = true }
+indicatif = { version = "0.17", optional = true }
+
+# macOS-specific deps: ObjC FFI for NSWorkspace wake notifications.
+# `block2` is required because NSNotificationCenter takes a block-typed
+# handler argument; objc2-app-kit doesn't enable the dep transitively
+# under default features.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.5"
+# objc2-foundation 0.2 feature-gates every Foundation class behind its
+# own cargo feature. We need NSString and NSNotification for the
+# sleep/wake observer in src/daemon/power/macos.rs.
+# (NSNotificationCenter ships under the NSNotification feature; no
+# separate feature flag exists for it in 0.2.x.)
+objc2-foundation = { version = "0.2", features = [
+    # NSObject is the typed root class — used as the observer handle
+    # returned by `addObserverForName:`.
+    "NSObject",
+    "NSString",
+    "NSNotification",
+    # NSOperation covers NSOperationQueue, which appears as the `queue:`
+    # parameter of `addObserverForName:object:queue:usingBlock:` —
+    # without it the method isn't generated.
+    "NSOperation",
+    # `block2` exposes the block-taking methods (e.g.
+    # `addObserverForName:object:queue:usingBlock:` on
+    # NSNotificationCenter, which we use for the wake observer).
+    "block2",
+] }
+# objc2-app-kit 0.2 likewise gates NSWorkspace (and the
+# NSWorkspaceDidWakeNotification static) behind the NSWorkspace feature.
+objc2-app-kit = { version = "0.2", features = ["NSWorkspace"] }
+block2 = "0.5"
+# NSStatusItem-backed tray for macOS via Tauri's tray-icon crate.
+# Default features pull libxdo for keyboard accelerators we don't use,
+# so opt out. The ksni migration in commit 735dcfe moved this dep here
+# from the cross-platform [dependencies] block; the move was documented
+# but the line itself was dropped, which broke macOS builds.
+tray-icon = { version = "0.23", default-features = false }
+
+# Linux-specific deps:
+#  - `zbus` for the systemd-logind PrepareForSleep signal. Default
+#    features include async runtime integration we don't need; we use
+#    only the blocking API on a dedicated background thread.
+#  - `ksni` for the system tray (StatusNotifierItem over D-Bus). Default
+#    features pull `tokio`; we use the runtime-agnostic `blocking`
+#    feature instead so we don't need to introduce an async runtime.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5" }
+ksni = { version = "0.3", default-features = false, features = ["blocking", "async-io"] }
+# libvirt-rs (`virt`) for V3-Phase C bridge VM orchestration. Optional
+# so default builds don't pull it in; activated transitively when the
+# user opts into `experimental-bridge` AND is on Linux. This dep is
+# absent on macOS entirely (libvirt isn't available there); the
+# `cli::stream::init` flow returns an UnsupportedPlatform error on
+# macOS. Linux hosts without `libvirt0` will fail at runtime; install
+# via your distro: `apt install libvirt0` (Debian/Ubuntu),
+# `pacman -S libvirt` (Arch).
+virt = { version = "0.4", optional = true }
+
+[dev-dependencies]
+# Sandboxed temporary directories for filesystem-shaped tests.
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+
+[profile.dev]
+debug = 1
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+# Config for 'dist'
+[workspace.metadata.dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.31.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-musl"]
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+# Whether to install an updater program
+install-updater = false
+# Which actions to run on pull requests
+pr-run-mode = "plan"
+# NOTE: zipsign signing is not natively supported by cargo-dist 0.31. The
+# `self_update` crate's `signatures` feature can verify zipsign-signed
+# artifacts at update time; producing those signatures requires a separate
+# post-build signing step. This is deferred to Phase 5 alongside the
+# self-update implementation. See infra handoff doc.
