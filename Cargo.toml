@@ -181,6 +181,10 @@ objc2 = "0.5"
 objc2-foundation = { version = "0.2", features = [
     "NSString",
     "NSNotification",
+    # NSOperation covers NSOperationQueue, which appears as the `queue:`
+    # parameter of `addObserverForName:object:queue:usingBlock:` —
+    # without it the method isn't generated.
+    "NSOperation",
     # `block2` exposes the block-taking methods (e.g.
     # `addObserverForName:object:queue:usingBlock:` on
     # NSNotificationCenter, which we use for the wake observer).
