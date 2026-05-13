@@ -219,8 +219,16 @@ fn exchange_renameat2(src: &Path, dst: &Path) -> std::result::Result<(), Exchang
     // working directory as the dirfd." `RENAME_EXCHANGE = 2` per
     // <linux/fs.h>. The flags fit in `c_uint`. No memory is shared with
     // the syscall after it returns.
+    //
+    // We invoke via `libc::syscall(SYS_renameat2, …)` rather than a
+    // direct `libc::renameat2` binding because the latter isn't exposed
+    // by libc 0.2 for the `x86_64-unknown-linux-musl` target that
+    // cargo-dist uses for our release artifacts. The raw-syscall form
+    // is identical at the kernel boundary and works across both libc
+    // flavors.
     let rc = unsafe {
-        libc::renameat2(
+        libc::syscall(
+            libc::SYS_renameat2,
             libc::AT_FDCWD,
             src_c.as_ptr(),
             libc::AT_FDCWD,
