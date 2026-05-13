@@ -250,7 +250,22 @@ cargo-dist-version = "0.31.0"
 # CI backends to support
 ci = "github"
 # The installers to generate for each app
-installers = ["shell"]
+#  - shell:   the universal `curl … | sh` installer; works on Linux + macOS
+#             when the user doesn't have a native package manager preference.
+#  - homebrew: macOS users overwhelmingly reach for `brew install`. cargo-dist
+#             auto-publishes a Formula to the tap repo below on every release
+#             tag, so we get first-class macOS install UX without owning any
+#             Formula edits or version bumps by hand.
+installers = ["shell", "homebrew"]
+# Homebrew tap that receives the auto-generated Formula. The repo already
+# exists from V1; cargo-dist will land PRs against its default branch on
+# each release tag. When V1 retires (~30 days post-V2.0.0 stable), the
+# legacy bash-script Formula gets replaced by the V2 binary Formula here.
+tap = "nicholasraimbault/homebrew-neon"
+# Activate the Homebrew publish job in the generated release workflow.
+# Needs a `HOMEBREW_TAP_TOKEN` repo secret (a PAT with `contents:write`
+# on the tap repo) for cargo-dist to push the Formula commit.
+publish-jobs = ["homebrew"]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-musl"]
 # Path that installers should place binaries in
