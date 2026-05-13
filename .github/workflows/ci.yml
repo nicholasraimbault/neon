@@ -62,7 +62,11 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev pkg-config
+          # libvirt-dev: required by the `virt` crate (V3 experimental-bridge)
+          # so `--all-features` builds + tests can link `libvirt0`. libgtk-3-dev
+          # and libayatana-appindicator3-dev are legacy from the pre-ksni tray
+          # era; harmless to keep but no longer required by default builds.
+          sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev libvirt-dev pkg-config
       - run: cargo test --all-features --no-fail-fast
 
   audit:
@@ -103,7 +107,11 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev pkg-config
+          # libvirt-dev: required by the `virt` crate (V3 experimental-bridge)
+          # so `--all-features` builds + tests can link `libvirt0`. libgtk-3-dev
+          # and libayatana-appindicator3-dev are legacy from the pre-ksni tray
+          # era; harmless to keep but no longer required by default builds.
+          sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev libvirt-dev pkg-config
       - run: cargo build --release --verbose
 
   coverage:
