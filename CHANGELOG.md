@@ -10,6 +10,8 @@ Once V1.0 ships, future entries will be auto-generated from
 
 ## [Unreleased]
 
+## [2.0.0-rc.1] - 2026-05-13
+
 ### Added
 
 - **V3 localhost-bridge (experimental, behind `experimental-bridge`
@@ -91,6 +93,14 @@ Once V1.0 ships, future entries will be auto-generated from
 - patch restore: only attempted when `perform_patch` actually modified
   the original; pre-modification failures no longer trigger an
   incorrect restore
+- Migration silently missed v1 installs whose systemd units lived
+  under `/usr/lib/systemd/system/` (AUR-packaged) or
+  `/lib/systemd/system/` (Debian pre-merged-usr). Now probes all three
+  locations; dedupes merged-usr symlinks; routes package-managed
+  artifacts to a skip-with-advisory rather than rm-ing files behind
+  the package manager's back. The advisory text is sniffed from
+  `/etc/os-release` so Arch sees `pacman -R neon-drm`, Debian sees
+  `dpkg -r neon-drm`, Fedora sees `rpm -e neon-drm`, etc.
 
 ### Security
 
@@ -101,4 +111,12 @@ Once V1.0 ships, future entries will be auto-generated from
 - Hooks runner refuses non-executable scripts.
 - IPC message size capped at 1 MiB.
 
-[Unreleased]: https://github.com/nicholasraimbault/neon/compare/v0.x...HEAD
+### Credits
+
+- @bfayers (#1) — independently caught the Mozilla widevine URL
+  rotation and the macOS `xattr -r → -c` regression in the v1 bash
+  scripts. Both bugs are obsoleted by the rewrite, but the reports
+  were on the money.
+
+[Unreleased]: https://github.com/nicholasraimbault/neon/compare/v2.0.0-rc.1...HEAD
+[2.0.0-rc.1]: https://github.com/nicholasraimbault/neon/compare/v1.0.0...v2.0.0-rc.1
