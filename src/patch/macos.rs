@@ -596,14 +596,14 @@ mod tests {
 
     #[test]
     fn parse_cfbundle_short_version_string_handles_multiline_xml() {
-        let plist = r#"
+        let plist = r"
             <key>CFBundleName</key>
             <string>Helium</string>
             <key>CFBundleShortVersionString</key>
             <string>128.0.6613.119</string>
             <key>CFBundleVersion</key>
             <string>128.0.6613.119</string>
-        "#;
+        ";
         assert_eq!(
             parse_cfbundle_short_version_string(plist).as_deref(),
             Some("128.0.6613.119")

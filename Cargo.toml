@@ -173,8 +173,15 @@ indicatif = { version = "0.17", optional = true }
 # under default features.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.5"
-objc2-foundation = "0.2"
-objc2-app-kit = "0.2"
+# objc2-foundation 0.2 feature-gates every Foundation class behind its
+# own cargo feature. We need NSString and NSNotification for the
+# sleep/wake observer in src/daemon/power/macos.rs.
+# (NSNotificationCenter ships under the NSNotification feature; no
+# separate feature flag exists for it in 0.2.x.)
+objc2-foundation = { version = "0.2", features = ["NSString", "NSNotification"] }
+# objc2-app-kit 0.2 likewise gates NSWorkspace (and the
+# NSWorkspaceDidWakeNotification static) behind the NSWorkspace feature.
+objc2-app-kit = { version = "0.2", features = ["NSWorkspace"] }
 block2 = "0.5"
 # NSStatusItem-backed tray for macOS via Tauri's tray-icon crate.
 # Default features pull libxdo for keyboard accelerators we don't use,
