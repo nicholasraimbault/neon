@@ -12,11 +12,21 @@ The migration logic lives in `src/migration.rs`. On first invocation, `neon setu
 |---|---|---|
 | `/Library/LaunchDaemons/com.neon.fix-drm.plist` | V1 macOS bash + V1 Homebrew | unload + remove (requires sudo — V2 prompts once) |
 | `~/Library/LaunchAgents/com.neon.app.plist` | V1 Mac DMG menu-bar app | unload + remove (no sudo) |
-| `/etc/systemd/system/neon-fix-drm.path` | V1 Linux bash + .deb | disable + remove (sudo) |
-| `/etc/systemd/system/neon-fix-drm.service` | V1 Linux bash + .deb | remove (sudo) |
+| `/etc/systemd/system/neon-fix-drm.{path,service}` | V1 Linux raw `install.sh` | disable + remove (sudo) |
+| `/usr/lib/systemd/system/neon-fix-drm.{path,service}` | V1 Linux AUR / RPM package | skipped; advisory to run the host package manager's uninstall command (see below) |
+| `/lib/systemd/system/neon-fix-drm.{path,service}` | V1 Linux Debian (pre-merged-usr) | skipped; advisory to run `dpkg -r neon-drm` |
 | `~/.config/autostart/neon.desktop` | V1 Linux tray app | remove (no sudo) |
 | `~/.local/share/WidevineCdm/<version>/` | All Linux V1 paths | migrate to `~/.cache/neon/widevine/<version>/` (no sudo) |
-| `/usr/lib/neon/` | V1 Linux .deb | reported but **not** removed (system-managed; user runs `dpkg -r neon-drm`) |
+| `/usr/lib/neon/` | V1 Linux packaged install (AUR / .deb / .rpm) | skipped; advisory to use the host package manager (see below) |
+
+Detection deduplicates paths by canonical inode, so merged-usr layouts (Arch, Fedora 27+, where `/lib → /usr/lib`) report each on-disk unit once, not twice.
+
+For packaged installs (anything under `/usr/lib/` or `/lib/`), V2 **never** `rm`-s the files — touching package-managed paths behind the package manager's back desyncs its file database. Instead V2 sniffs `/etc/os-release` and surfaces the right uninstall hint:
+
+- **Arch** (`ID=arch` or `ID_LIKE` includes `arch`): `pacman -R neon-drm` (or `paru -R neon-drm` / `yay -R neon-drm` for AUR wrappers).
+- **Debian / Ubuntu / Mint / Pop!_OS** (`ID_LIKE` includes `debian`): `dpkg -r neon-drm` (or `apt remove neon-drm`).
+- **Fedora / RHEL / CentOS / Rocky / openSUSE**: `rpm -e neon-drm` (or `dnf remove neon-drm`).
+- **Unknown distro**: "use your system package manager to remove `neon-drm`".
 
 After migration completes, `neon setup` continues with:
 
@@ -27,14 +37,16 @@ After migration completes, `neon setup` continues with:
 `neon setup` prints a summary like:
 
 ```
-Migrated from legacy install:
-  - removed /Library/LaunchDaemons/com.neon.fix-drm.plist
-  - removed ~/.config/autostart/neon.desktop
-  - migrated ~/.local/share/WidevineCdm/4.10.2710.0 → ~/.cache/neon/widevine/4.10.2710.0
-  - skipped /usr/lib/neon/ (run `dpkg -r neon-drm` to remove the V1 .deb package)
+Removing 3 legacy artifact(s)…
+Migration: removed=0 migrated=0 skipped=3
+  → packaged install — run `pacman -R neon-drm` (or `paru -R neon-drm` / `yay -R neon-drm` for AUR) to remove cleanly
+Preparing Widevine CDM…
+…
 
 V2 setup complete. Run `neon doctor` to verify.
 ```
+
+(On Debian, the `→` line would read `dpkg -r neon-drm`; on Fedora, `rpm -e neon-drm` / `dnf remove neon-drm`. Distro detection is per the section above.)
 
 ## Per-install-path migration steps
 
@@ -43,7 +55,7 @@ V2 setup complete. Run `neon doctor` to verify.
 This is the simplest case. The V1 bash install drops a LaunchDaemon (macOS) or systemd `.path` unit (Linux) plus the `~/.local/share/WidevineCdm/` directory.
 
 ```sh
-curl -fsSL https://github.com/nicholasraimbault/neon/releases/latest/download/neon-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/nicholasraimbault/neon/releases/download/v2.0.0-rc.1/neon-installer.sh | sh
 neon setup
 ```
 
@@ -61,7 +73,7 @@ brew uninstall nicholasraimbault/neon/neon
 brew untap nicholasraimbault/neon
 
 # Install V2
-curl -fsSL https://github.com/nicholasraimbault/neon/releases/latest/download/neon-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/nicholasraimbault/neon/releases/download/v2.0.0-rc.1/neon-installer.sh | sh
 neon setup
 ```
 
@@ -75,7 +87,7 @@ The V1 menu-bar app is a Swift `.app` bundle in `/Applications`. It registers it
 
 ```sh
 # Install V2
-curl -fsSL https://github.com/nicholasraimbault/neon/releases/latest/download/neon-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/nicholasraimbault/neon/releases/download/v2.0.0-rc.1/neon-installer.sh | sh
 neon setup
 ```
 
@@ -91,13 +103,13 @@ pacman -R neon-drm
 # or: yay -R neon-drm
 
 # Install V2
-curl -fsSL https://github.com/nicholasraimbault/neon/releases/latest/download/neon-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/nicholasraimbault/neon/releases/download/v2.0.0-rc.1/neon-installer.sh | sh
 neon setup
 ```
 
 The AUR package's own `pre-remove` hook handles `systemctl disable --now neon-fix-drm.path`. After that, `neon setup` finds nothing left to clean up and proceeds with V2 setup.
 
-V1.1 will publish a V2 AUR package (see [ROADMAP.md](ROADMAP.md)); until then, the curl|sh installer is the supported path on Arch.
+V2.1 will publish a V2-bin AUR package (see [ROADMAP.md](ROADMAP.md)); until then, the `curl … | sh` installer above is the supported path on Arch.
 
 ### 5. Linux .deb (`neon-drm.deb`)
 
@@ -106,15 +118,15 @@ V1.1 will publish a V2 AUR package (see [ROADMAP.md](ROADMAP.md)); until then, t
 sudo dpkg -r neon-drm
 
 # Install V2
-curl -fsSL https://github.com/nicholasraimbault/neon/releases/latest/download/neon-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/nicholasraimbault/neon/releases/download/v2.0.0-rc.1/neon-installer.sh | sh
 neon setup
 ```
 
 The .deb's `prerm` hook handles `systemctl disable --now neon-fix-drm.path`. After `dpkg -r`, the systemd units are gone and `neon setup` proceeds clean.
 
-If you want to skip `dpkg -r` and let `neon setup` detect a partial install, it will: it sees `/usr/lib/neon/` and reports it as `LinuxDebPackage` with `needs_root: true`, but **does not remove it** — the V2 migration logic intentionally won't touch system-managed package files. You'd need to run `dpkg -r neon-drm` yourself anyway.
+If you want to skip `dpkg -r` and let `neon setup` detect a partial install, it will: it sees `/usr/lib/neon/` and reports it with the `package_managed` flag and a pkg-manager-aware uninstall hint (here: `dpkg -r neon-drm`). It will **not** `rm` the files — V2 migration intentionally never touches system-managed package paths. You'd need to run `dpkg -r neon-drm` yourself anyway.
 
-V1.1 will publish a V2 .deb package (see [ROADMAP.md](ROADMAP.md)).
+V2.1 will publish a V2 .deb package (see [ROADMAP.md](ROADMAP.md)).
 
 ## Cache migration: `~/.local/share/WidevineCdm/` → `~/.cache/neon/widevine/`
 

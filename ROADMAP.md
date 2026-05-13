@@ -2,29 +2,29 @@
 
 This document covers what's shipped, what's queued, and what's a stretch goal. Read alongside the [V2 design spec](docs/superpowers/specs/2026-05-04-neon-rust-rewrite-design.md).
 
-## V1.0 — current branch (`v2-rust-rewrite`, ships as V2 on master)
+## V2.0 — current (shipped as `v2.0.0-rc.1`; stable in ~1 week)
 
-Despite the directory naming, the first stable Neon release goes out as **V1.0** — the prior bash + Swift + Go implementation was V0.x in retrospect. The `v2-rust-rewrite` branch name reflects "second-generation rewrite," not the public version number.
+The first stable Neon release goes out as **V2.0** — the prior bash + Swift + Go implementation is V1.x in retrospect (it shipped as `v1.0.0`). The `v2-rust-rewrite` branch name became `v2.0` and then merged to `master`; the public version follows.
 
-V1.0 ships:
+V2.0 ships:
 
-- **Single-binary cross-platform CLI + tray daemon.** ~10 MB statically-linked Rust binary; same code path on macOS (x86_64 + aarch64) and Linux (x86_64-musl). Replaces the V0 bash + Swift + Go triple-implementation.
-- **Atomic patching with rollback.** `renameat2(RENAME_EXCHANGE)` on Linux, `renameatx_np(RENAME_SWAP)` on macOS, two-step fallback otherwise. Snapshot every patch to `~/.cache/neon/backups/<browser>-<ver>-<ts>/`; restore on any failure.
+- **Single-binary cross-platform CLI + tray daemon.** ~10 MB statically-linked Rust binary; same code path on macOS (x86_64 + aarch64) and Linux (x86_64-musl). Replaces the V1 bash + Swift + Go triple-implementation.
+- **Atomic patching with rollback.** `renameat2(RENAME_EXCHANGE)` on Linux (invoked via `syscall(SYS_renameat2, …)` for musl compat), `renameatx_np(RENAME_SWAP)` on macOS, two-step fallback otherwise. Snapshots every patch to `<install-parent>/.neon-backups/` (same-fs to avoid EXDEV); restore on any failure.
 - **Browser-running detection.** Refuses to patch a running browser by default; daemon defers + retries when the browser quits (mtime stable for 30s, hard cap 1h).
-- **Tray icon + native notifications.** `tray-icon` crate; `notify-rust` for notifications. macOS lacks notification action buttons (platform limitation); Linux has full button support.
+- **Tray icon + native notifications.** `ksni` on Linux (StatusNotifierItem directly over D-Bus — zero GTK / libappindicator runtime dep); `tray-icon` (NSStatusItem) on macOS; `notify-rust` for notifications. macOS lacks notification action buttons (platform limitation); Linux has full button support.
 - **Mozilla manifest URL fallback chain.** Primary: `hg.mozilla.org`. Fallback: GitHub `mozilla-firefox/firefox` mirror. Final: 24h-cached manifest.
 - **`neon doctor` with EME error-code translation.** 14 codes across 5 services (Netflix, Disney+, HBO Max, Spotify, Hulu) mapped to actionable advice. `--share` produces a pre-filled GitHub issue URL.
 - **`neon repair`.** uninstall + setup composition; preserves user config.
 - **Opt-in error reporting.** Cloudflare Worker + D1 SQLite backend. Default off. Asked during `neon init`. No PII; only categorized failures.
-- **Migration from V0.** Detects + cleans up legacy bash, Homebrew, AUR, .deb, and Mac DMG installs. See [MIGRATION.md](MIGRATION.md).
+- **Migration from V1.** Detects + cleans up legacy bash installs and packaged installs (AUR, .deb, .rpm) with a pkg-manager-aware uninstall hint sniffed from `/etc/os-release` (Arch → `pacman -R`, Debian → `dpkg -r`, Fedora → `rpm -e` / `dnf remove`). Probes `/etc/systemd/system/`, `/usr/lib/systemd/system/`, and `/lib/systemd/system/`; deduplicates merged-usr symlinks. See [MIGRATION.md](MIGRATION.md).
 - **Sleep/wake hooks.** macOS `NSWorkspaceDidWakeNotification` (objc2 FFI); Linux `org.freedesktop.login1.Manager.PrepareForSleep` (zbus). Re-verifies all browser patches after wake.
-- **Single distribution channel.** `cargo-dist`-driven `curl | sh` installer. No Homebrew tap (V1 tap archived 30 days post-release); no .deb / .rpm / AppImage / AUR yet.
+- **Distribution.** `cargo-dist`-driven `curl | sh` installer + macOS/Linux binary tarballs at GitHub Releases. AUR PKGBUILD ships V1 today; will switch to V2-bin after V2.0 stable. Homebrew tap (`nicholasraimbault/homebrew-neon`) holds V1 during the rc — V2 auto-publish wires up once macOS is validated end-to-end. `.deb` / `.rpm` deferred to V2.1.
 
-Phase 6 of the orchestration plan covers the V1.0 beta period — pinned-issue tester recruitment, fix dispatch by error category, eventual `v1.0.0` tag.
+Phase 6 of the orchestration plan covers the V2.0 rc period — pinned-issue tester recruitment, fix dispatch by error category, eventual `v2.0.0` tag.
 
-## V1.1 — queued
+## V2.1 — queued
 
-Targeted at the first six months post-V1.0 ship. Driven by user demand observed during beta + early prod.
+Targeted at the first six months post-V2.0 ship. Driven by user demand observed during the rc + early prod.
 
 ### Distribution channels
 
@@ -74,9 +74,9 @@ This is bounded but involved — two-three weeks of focused work. Apple Silicon 
 
 ### Inside-out codesigning on macOS
 
-Apple deprecated `codesign --deep` as of macOS 13. V1 still uses it because that's what V0 used and the deprecation doesn't break things yet. V2 migrates to inside-out codesigning: sign the framework's `.dylib` first, then sign the framework, then sign the bundle. Each layer's signature is verifiable independently. Documented at `https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues`.
+Apple deprecated `codesign --deep` as of macOS 13. V2 still uses it because that's what V1 used and the deprecation doesn't break things yet. V2.1 migrates to inside-out codesigning: sign the framework's `.dylib` first, then sign the framework, then sign the bundle. Each layer's signature is verifiable independently. Documented at `https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution/resolving_common_notarization_issues`.
 
-## V3 — `neon stream` localhost-bridge (experimental in V1.x)
+## V3 — `neon stream` localhost-bridge (experimental in V2.x)
 
 **Status:** code-complete behind the `experimental-bridge` Cargo feature flag. **Ships as experimental, not promoted on the front page.** Default install (`curl | sh`) gets V2 only. Opt-in only via `cargo install neon --features experimental-bridge,experimental-bridge-libvirt`.
 
@@ -182,8 +182,8 @@ This is reach-extending work, not core mission. We'd build it because the L3 cei
 
 ## Versioning
 
-V1 starts at `v0.1.0` (current Cargo version) and progresses through `v0.x` during the beta period. The first non-beta release is `v1.0.0`. Breaking changes to the IPC protocol bump the major version. Breaking changes to the CLI surface require a deprecation cycle (one minor version warning, removal at next major). CHANGELOG entries auto-generated from conventional commits via release-please.
+V2 shipped at `v2.0.0-rc.1` and promotes to `v2.0.0` after the rc settles (~1 week). Breaking changes to the IPC protocol bump the major version. Breaking changes to the CLI surface require a deprecation cycle (one minor version warning, removal at next major). CHANGELOG entries auto-generated from conventional commits via release-please.
 
 ## Schedule
 
-This document is updated as items move between V1.0 / V1.1 / V2 / V3. Last updated: 2026-05-04.
+This document is updated as items move between V2.0 / V2.1 / V3. Last updated: 2026-05-13.

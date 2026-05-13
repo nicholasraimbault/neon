@@ -6,14 +6,22 @@ Neon patches Google's Widevine CDM into Chromium-family browsers that don't ship
 
 ## Install
 
+**Currently shipping a release candidate (v2.0.0-rc.1).** Please file issues if anything misbehaves; promotion to `v2.0.0` stable follows after the rc has had a quiet ~week.
+
 ```sh
-curl -fsSL https://github.com/nicholasraimbault/neon/releases/latest/download/neon-installer.sh | sh
+# Linux and macOS — pinned to the rc.1 tag while we're pre-stable.
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/nicholasraimbault/neon/releases/download/v2.0.0-rc.1/neon-installer.sh | sh
 neon setup
 ```
 
-That's it. The installer drops a single statically-linked binary into `$CARGO_HOME/bin` (typically `~/.cargo/bin`); `neon setup` then detects your browsers, downloads the Widevine CDM from Mozilla's GMP manifest, patches each browser, and registers a user-session daemon (LaunchAgent on macOS, systemd-user unit on Linux) that re-patches automatically on browser self-updates.
+Once v2.0.0 stable lands, this snippet collapses to `…/releases/latest/download/neon-installer.sh` (URL updated on each release).
 
-If you previously installed Neon via the V1 bash script, Homebrew tap, AUR package, or .deb — `neon setup` detects and migrates the old install. See [MIGRATION.md](MIGRATION.md).
+The installer drops a single statically-linked binary into `$CARGO_HOME/bin` (typically `~/.cargo/bin`); `neon setup` then detects your browsers, downloads the Widevine CDM from Mozilla's GMP manifest, patches each browser, and registers a user-session daemon (LaunchAgent on macOS, systemd-user unit on Linux) that re-patches automatically on browser self-updates.
+
+**Mac users heads-up.** `brew install nicholasraimbault/neon/neon` still installs **v1.0.0** (the V1 bash scripts). The tap is intentionally pinned at v1 during the rc — v2 hasn't been end-to-end validated on macOS yet. To try v2 on a Mac, use the `curl … | sh` snippet above. We auto-publish a v2 Formula to the tap once the macOS path is validated.
+
+If you previously installed Neon via the V1 bash script, Homebrew tap, AUR package, or .deb — `neon setup` detects and migrates the old install (with a pkg-manager-aware uninstall hint for AUR / .deb / .rpm). See [MIGRATION.md](MIGRATION.md).
 
 ## Supported browsers
 
