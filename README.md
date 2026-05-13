@@ -9,7 +9,7 @@ Neon patches Google's Widevine CDM into Chromium-family browsers that don't ship
 **Currently shipping a release candidate (v2.0.0-rc.1).** Please file issues if anything misbehaves; promotion to `v2.0.0` stable follows after the rc has had a quiet ~week.
 
 ```sh
-# Linux and macOS — pinned to the rc.1 tag while we're pre-stable.
+# Linux and macOS — pinned to the rc.1 tag during the pre-stable window.
 curl --proto '=https' --tlsv1.2 -LsSf \
   https://github.com/nicholasraimbault/neon/releases/download/v2.0.0-rc.1/neon-installer.sh | sh
 neon setup
@@ -19,7 +19,7 @@ Once v2.0.0 stable lands, this snippet swaps the pinned tag for `…/releases/la
 
 The installer drops a single statically-linked binary into `$CARGO_HOME/bin` (typically `~/.cargo/bin`); `neon setup` then detects your browsers, downloads the Widevine CDM from Mozilla's GMP manifest, patches each browser, and registers a user-session daemon (LaunchAgent on macOS, systemd-user unit on Linux) that re-patches automatically on browser self-updates.
 
-**Mac users heads-up.** `brew install nicholasraimbault/neon/neon` still installs **v1.0.0** — the bash-script implementation that predated this Rust rewrite. The tap is intentionally pinned at v1 during the rc because v2 hasn't been end-to-end validated on macOS yet. To try v2 on a Mac, use the `curl … | sh` snippet above. We'll auto-publish a v2 Formula to the tap once the macOS path is validated.
+**Mac users heads-up.** `brew install nicholasraimbault/neon/neon` still installs **v1.0.0** — the bash-script implementation that predated this Rust rewrite. The tap is intentionally pinned at v1 during the rc because v2 hasn't been end-to-end validated on macOS yet. To try v2 on a Mac, use the `curl … | sh` snippet above. I'll auto-publish a v2 Formula to the tap once the macOS path is validated.
 
 If you previously installed Neon via the V1 bash script, Homebrew tap, AUR package, or .deb — `neon setup` detects and migrates the old install (with a pkg-manager-aware uninstall hint for AUR / .deb / .rpm). See [MIGRATION.md](MIGRATION.md).
 
@@ -125,7 +125,7 @@ ARM64 Linux (Asahi, Pi) and Windows aren't supported in V2 — see [ROADMAP.md](
 
 ## Project posture
 
-Neon is maintained by one person on an **Arch Linux laptop**. Arch (and Arch-like distros) get first-class testing. **macOS, Debian / Ubuntu, Fedora / RHEL, Windows, and ARM64 are best-effort and contributor-driven** — Nick can write the code but needs people on those platforms to verify it works and file issues when it doesn't. See [ROADMAP.md](ROADMAP.md#maintenance-posture) for details and a list of items currently tagged `[needs <platform> verifier]`. PRs on those platforms are very welcome.
+Neon is maintained by one person. **Arch (and Arch-like distros) get first-class testing** — that's what I develop on. **macOS, Debian / Ubuntu, Fedora / RHEL, Windows, and ARM64 are best-effort and contributor-driven** — I can write the code, but I need people on those platforms to verify it works and file issues when it doesn't. See [ROADMAP.md](ROADMAP.md#maintenance-posture) for details and a list of items currently tagged `[needs <platform> verifier]`. PRs on those platforms are very welcome.
 
 ## Documentation
 
