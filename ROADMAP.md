@@ -4,14 +4,14 @@ What's shipped, what's queued, what's a stretch goal, and who has to do it.
 
 ## Maintenance posture
 
-Neon is maintained by [@nicholasraimbault](https://github.com/nicholasraimbault) on an Arch Linux laptop. **Arch (and Arch-like distros) get first-class testing.** Everything else is best-effort and contributor-driven:
+Neon is maintained by [@nicholasraimbault](https://github.com/nicholasraimbault). I develop on Arch, so **Arch (and Arch-like distros) get first-class testing.** Everything else is best-effort and contributor-driven:
 
 - **macOS** — builds and lints cleanly in CI; functional verification depends on Mac users running the binary and filing issues. The Homebrew tap is intentionally pinned at V1 until V2 has been validated end-to-end on a real Mac.
 - **Debian / Ubuntu / Fedora / RHEL** — V2's musl binary *runs*, but `.deb` / `.rpm` packaging and distro-specific migration paths need volunteers from those distros to verify.
 - **Windows** — speculative, contributor-driven entirely. The protocol is sketched below; the code isn't.
 - **ARM64 Linux** — not in V2's target list; needs Apple Silicon Asahi research or a maintainer with hardware.
 
-Items below tagged `[contributor]` or `[needs <platform> verifier]` aren't blocked on Nick — they're blocked on someone who actually uses that platform stepping up. Open an issue when something breaks, send a PR when you fix it. The project will move at the speed of contributors on platforms Nick can't run.
+Items below tagged `[contributor]` or `[needs <platform> verifier]` aren't blocked on me — they're blocked on someone who actually uses that platform stepping up. Open an issue when something breaks, send a PR when you fix it. The project will move at the speed of contributors on platforms I can't run.
 
 ## V2.0 — current (shipped as `v2.0.0-rc.1`; stable in ~1 week)
 
@@ -44,7 +44,7 @@ First six months post-V2.0. Driven by what surfaces during the rc and early prod
 
 ### Diagnostics + media-stack helpers
 
-- **`neon doctor --media-stack`** — checks codec presence (h264/h265/av1/vp9), HDR support (Wayland color management + monitor + GPU driver), GPU-accel flags (VAAPI / VideoToolbox). Reports a "media stack health" summary with concrete fixes. Linux side by Nick; macOS VideoToolbox detection `[needs macOS verifier]`.
+- **`neon doctor --media-stack`** — checks codec presence (h264/h265/av1/vp9), HDR support (Wayland color management + monitor + GPU driver), GPU-accel flags (VAAPI / VideoToolbox). Reports a "media stack health" summary with concrete fixes. Linux side by me; macOS VideoToolbox detection `[needs macOS verifier]`.
 - **`neon configure-youtube-hdr`** — one-shot helper that flips the right flags + installs the right extension for YouTube HDR on supported configurations (Wayland + HDR display + HEVC). Linux-only at the start.
 - **Codec presence detection** as a shared library module so `neon doctor` and `neon configure-youtube-hdr` share the logic.
 
@@ -90,7 +90,7 @@ With the feature enabled, the binary grows ~5 MB and gains runtime deps on QEMU 
 
 ## Future / unscheduled
 
-Items with no release vehicle; gated on contributors or hardware Nick doesn't have.
+Items with no release vehicle; gated on contributors or hardware I don't have.
 
 ### Windows support `[contributor]`
 
@@ -102,7 +102,7 @@ Chromium DRM mechanics on Windows are similar enough to macOS/Linux that a port 
 - File watching: `ReadDirectoryChangesW` (the `notify` crate already abstracts this).
 - No `xattr` / `codesign` finalization.
 
-`tray-icon` already supports Windows; the cross-platform abstractions in `src/platform/` and `src/daemon/` will accept a third backend. The work lands when a Windows maintainer shows up — Nick has no Windows machine to develop or test against.
+`tray-icon` already supports Windows; the cross-platform abstractions in `src/platform/` and `src/daemon/` will accept a third backend. The work lands when a Windows maintainer shows up — I have no Windows machine to develop or test against.
 
 ### ARM64 Linux Widevine `[contributor / hardware]`
 
