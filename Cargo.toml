@@ -20,15 +20,11 @@ path = "src/lib.rs"
 name = "neon"
 path = "src/main.rs"
 
-# V3 scaffolding feature flags. See:
-# - docs/superpowers/specs/2026-05-04-neon-v3-localhost-bridge-scaffolding-plan.md
-# - docs/superpowers/plans/2026-05-04-neon-v3-orchestration-plan.md
-#
-# Default builds compile no V3 code at all. Activating
-# `experimental-bridge` enables a stub `neon stream` subcommand that
-# returns a "queued for V3" error pointing users at ROADMAP.md. The real
-# V3 implementation (QEMU/KVM + Win11 IoT LTSC + Looking Glass + GPU/TPM
-# passthrough) lands after V1.0 stabilizes.
+# V3 scaffolding feature flags. Default builds compile no V3 code at
+# all. Activating `experimental-bridge` enables a stub `neon stream`
+# subcommand that returns a "queued for V3" error pointing users at
+# ROADMAP.md. The real V3 implementation (QEMU/KVM + Win11 IoT LTSC +
+# Looking Glass + GPU/TPM passthrough) lands after V2.0 stabilizes.
 #
 # Install with:
 #     cargo install neon --features experimental-bridge

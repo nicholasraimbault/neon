@@ -105,13 +105,13 @@ Neon uses [Conventional Commits](https://www.conventionalcommits.org/) for the a
 - `chore` — build / tooling / dependency bumps
 - `ci` — CI workflow changes
 
-**Scopes** match the team-ownership model in `docs/superpowers/teams/`:
+**Scopes** map to the module surface in `src/`:
 
-- `core-engine`, `widevine`, `patch`, `browsers`, `lockfile`, `error`
+- `widevine`, `patch`, `browsers`, `lockfile`, `error`
 - `platform`, `migration`
 - `daemon`, `tray`, `watcher`, `ipc`, `notify`, `hooks`, `power`, `lifecycle`
 - `cli`, `eme`, `log`, `config`
-- `infra`, `ci`, `dist`, `worker`
+- `ci`, `dist`, `deps`
 
 **Examples:**
 
@@ -160,31 +160,31 @@ Neon is a single Rust binary with two operational modes:
 - **CLI mode** — `neon <subcommand>` runs one-shot operations. Each subcommand calls into the appropriate library module.
 - **Daemon mode** — `neon` (no args) runs the long-lived tray daemon. Same binary, different entry point.
 
-The codebase is split by team ownership boundary, with each team owning a slice of `src/` and an entry in `docs/superpowers/teams/<team>/handoff.md`:
+The codebase is split into module-level slices of `src/`:
 
-| Module path | Owner | What it does |
-|---|---|---|
-| `src/widevine/` | core-engine | Manifest, download, extract, cache |
-| `src/browsers/` | core-engine | Known list + auto-discovery + custom paths |
-| `src/patch/{mod,backup}.rs` | core-engine | Atomic patch protocol, snapshot/rollback |
-| `src/patch/{linux,macos}.rs` | platform | Platform-specific bundle write |
-| `src/platform/` | platform | Paths trait, escalation, atomic_rename |
-| `src/migration.rs` | platform | Detect + remove V0 install |
-| `src/daemon/{mod,tray,watcher,ipc}.rs` | daemon | Tray + watcher + IPC |
-| `src/daemon/{lifecycle,power}/` | platform | LaunchAgent / systemd / wake hooks |
-| `src/notify.rs` + `src/hooks.rs` | daemon | Notifications + post-patch hooks |
-| `src/cli/` | cli | Every subcommand impl |
-| `src/eme/` | cli | EME error code translation |
-| `src/log.rs` + `src/config.rs` | cli | Tracing + TOML config |
-| `src/main.rs` | cli | Clap dispatcher |
-| `src/lib.rs`, `src/error.rs`, `src/lockfile.rs` | core-engine | Library surface, error type, flock |
-| `Cargo.toml`, `.github/` | infra | Build, CI, release |
+| Module path | What it does |
+|---|---|
+| `src/widevine/` | Manifest, download, extract, cache |
+| `src/browsers/` | Known list + auto-discovery + custom paths |
+| `src/patch/{mod,backup}.rs` | Atomic patch protocol, snapshot/rollback |
+| `src/patch/{linux,macos}.rs` | Platform-specific bundle write |
+| `src/platform/` | Paths trait, escalation, atomic_rename |
+| `src/migration.rs` | Detect + remove V1 install |
+| `src/daemon/{mod,tray,watcher,ipc}.rs` | Tray + watcher + IPC |
+| `src/daemon/{lifecycle,power}/` | LaunchAgent / systemd / wake hooks |
+| `src/notify.rs` + `src/hooks.rs` | Notifications + post-patch hooks |
+| `src/cli/` | Every subcommand impl |
+| `src/eme/` | EME error code translation |
+| `src/log.rs` + `src/config.rs` | Tracing + TOML config |
+| `src/main.rs` | Clap dispatcher |
+| `src/lib.rs`, `src/error.rs`, `src/lockfile.rs` | Library surface, error type, flock |
+| `Cargo.toml`, `.github/` | Build, CI, release |
 
-Cross-team interfaces are stable; teams don't reach into each other's internals. See the per-team handoff docs for public API contracts.
+Module interfaces are kept stable across changes; rustdoc on the public types is the contract.
 
 ## Experimental features
 
-Neon ships some features behind Cargo feature flags so they don't bloat the default binary or expose half-finished surface. The current experimental flag is `experimental-bridge`, scaffolding for the V3 localhost-bridge feature (see [ROADMAP.md](ROADMAP.md#v3-stretch-goal-neon-localhost-bridge-experimental) and [the V3 scaffolding plan](docs/superpowers/specs/2026-05-04-neon-v3-localhost-bridge-scaffolding-plan.md)).
+Neon ships some features behind Cargo feature flags so they don't bloat the default binary or expose half-finished surface. The current experimental flag is `experimental-bridge`, scaffolding for the V3 localhost-bridge feature — see [ROADMAP.md](ROADMAP.md) for the V3 section and [`docs/v3/`](docs/v3/) for user-facing docs (hardware compat matrix, troubleshooting, license FAQ).
 
 ### Activating an experimental feature
 
