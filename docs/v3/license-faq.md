@@ -97,16 +97,10 @@ At that point:
 
 ## Q: Does Neon collect / report license data?
 
-No. The opt-in error reporter (`neon doctor` flag) sends only
-categorized error counts (e.g. "NetworkError occurred") and never
-includes:
-
-- The product key.
-- The license-mode value.
-- `bridge.toml` contents.
-- VM names or paths.
-
-Source: <https://github.com/imputnet/neon/blob/main/CHANGELOG.md>
+No. Neon ships **no** telemetry or error-reporting endpoint at all
+— the binary never POSTs failure metadata or license data anywhere.
+Bug reports go through GitHub Issues, where you choose what to
+share.
 (opt-in reporter section).
 
 ## Q: Can I share my key across multiple machines?

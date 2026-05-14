@@ -2,7 +2,7 @@
 //!
 //! This is the library crate. The binary entrypoint lives in [`main.rs`](../src/main.rs).
 //!
-//! Module layout (per `docs/superpowers/specs/2026-05-04-neon-rust-rewrite-design.md`):
+//! Module layout:
 //!
 //! * [`error`] — categorized [`Error`] / [`Result`] used everywhere.
 //! * [`browsers`] — known-list constants, auto-discovery, custom-config TOML.

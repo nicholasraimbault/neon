@@ -29,9 +29,9 @@
 //!
 //! ## What this module does NOT do
 //!
-//! * No JSON output — we emit human-readable text. JSON is a V1.1 add.
-//! * No log shipping. Errors that should be reported home go through the
-//!   opt-in error reporter, not the log file.
+//! * No JSON output — we emit human-readable text. JSON is a V2.1 add.
+//! * No log shipping. Neon doesn't transmit logs anywhere — bug reports
+//!   go through GitHub Issues, full stop.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;

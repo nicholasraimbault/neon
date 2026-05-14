@@ -5,13 +5,12 @@
 //!
 //! * `neon doctor` — surfacing actionable advice per category.
 //! * Notifications — categorized error → notification body.
-//! * Opt-in error reporter — payload schema includes the category verbatim.
 //!
 //! Design principles:
 //!
 //! * **Categories are stable.** New variants get added rather than reshuffled.
-//!   The Cloudflare Worker schema (and any downstream analytics) depends on
-//!   the string form being stable.
+//!   Downstream consumers (e.g. log-scrapers, JSON output) depend on the
+//!   string form being stable.
 //! * **`Other` is a last resort.** If a code path repeatedly hits `Other`,
 //!   it's a signal we need to add a new category.
 //! * **No `unwrap`/`expect` in production code paths** — surface a proper

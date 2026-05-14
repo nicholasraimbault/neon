@@ -7,12 +7,8 @@
 //! [`crate::widevine::cache::CachedCdm`] type. V3's `experimental-bridge`
 //! feature will introduce a `BridgeCdm` impl that fetches CDM bytes from
 //! a Windows guest VM over a Unix socket / vsock, enabling
-//! hardware-attested L1 playback paths.
-//!
-//! See:
-//!
-//! * `docs/superpowers/specs/2026-05-04-neon-v3-localhost-bridge-scaffolding-plan.md`
-//! * `docs/superpowers/plans/2026-05-04-neon-v3-orchestration-plan.md`
+//! hardware-attested L1 playback paths. See `crate::bridge` for the
+//! V3 module tree (only compiled with `--features experimental-bridge`).
 //!
 //! ## Object safety
 //!

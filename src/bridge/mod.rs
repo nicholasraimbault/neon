@@ -2,11 +2,9 @@
 //!
 //! Automates the QEMU/KVM + Win11 IoT LTSC + Looking Glass + GPU/TPM
 //! passthrough setup that delivers premium 4K HDR streaming
-//! (Netflix, Disney+, etc.) on Linux Chromium-family browsers.
-//!
-//! See `docs/superpowers/specs/2026-05-04-neon-v3-localhost-bridge-scaffolding-plan.md`
-//! and `docs/superpowers/plans/2026-05-04-neon-v3-orchestration-plan.md`
-//! for the gap analysis and architecture.
+//! (Netflix, Disney+, etc.) on Linux Chromium-family browsers. User-
+//! facing docs (hardware compat matrix, troubleshooting, license FAQ)
+//! live at [`docs/v3/`](https://github.com/nicholasraimbault/neon/tree/master/docs/v3).
 //!
 //! This module is **only compiled when the `experimental-bridge`
 //! feature is enabled**. Default builds of `neon` do not include any of
@@ -62,8 +60,7 @@ pub mod unattended;
 pub fn stream(_target_url: &str) -> Result<()> {
     Err(Error::other(
         "neon stream is queued for V3; current build is a stub. \
-         Track ROADMAP.md and the localhost-bridge scaffolding plan \
-         (docs/superpowers/specs/2026-05-04-neon-v3-localhost-bridge-scaffolding-plan.md).",
+         See ROADMAP.md and docs/v3/ for the hardware matrix + status.",
     ))
 }
 
