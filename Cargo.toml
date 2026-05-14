@@ -202,7 +202,7 @@ block2 = "0.6"
 # so opt out. The ksni migration in commit 735dcfe moved this dep here
 # from the cross-platform [dependencies] block; the move was documented
 # but the line itself was dropped, which broke macOS builds.
-tray-icon = { version = "0.23", default-features = false }
+tray-icon = { version = "0.24", default-features = false }
 
 # Linux-specific deps:
 #  - `zbus` for the systemd-logind PrepareForSleep signal. Default
