@@ -10,6 +10,13 @@ Once V1.0 ships, future entries will be auto-generated from
 
 ## [Unreleased]
 
+### Added
+
+- Auto-discover Helium installed via the official `apt` repo (lands
+  at `/opt/helium` on Debian / Ubuntu / Pop!_OS) in addition to the
+  existing AUR path `/opt/helium-browser-bin`. Thanks to
+  [@PeterDrakulic](https://github.com/PeterDrakulic) (#3).
+
 ## [2.0.0-rc.1] - 2026-05-13
 
 ### Added
