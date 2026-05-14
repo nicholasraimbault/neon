@@ -48,19 +48,3 @@ updates:
     commit-message:
       prefix: "ci"
       include: "scope"
-
-  # Cloudflare Worker (npm) deps.
-  - package-ecosystem: "npm"
-    directory: "/cloudflare-worker"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "08:00"
-      timezone: "America/Los_Angeles"
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "cloudflare-worker"
-    commit-message:
-      prefix: "deps(worker)"
-      include: "scope"
