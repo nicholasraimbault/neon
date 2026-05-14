@@ -740,12 +740,20 @@ fn neon_tray_icon_pixmap() -> Vec<ksni::Icon> {
     /// shipped. Ships as part of the binary; no install step.
     const PNG_BYTES: &[u8] = include_bytes!("../../linux-app/neon.png");
 
-    let decoder = png::Decoder::new(PNG_BYTES);
+    // png 0.18 tightened `Decoder::new` to require `Read + Seek`; the bare
+    // `&[u8]` slice is `Read` only. Wrap in a Cursor to add Seek.
+    let decoder = png::Decoder::new(std::io::Cursor::new(PNG_BYTES));
     let Ok(mut reader) = decoder.read_info() else {
         return vec![];
     };
     let info = reader.info().clone();
-    let mut rgba = vec![0u8; reader.output_buffer_size()];
+    // png 0.18: `output_buffer_size()` now returns `Option<usize>` (it's
+    // `None` if the decoded size would overflow usize). For our 22×22
+    // bundled icon this is always `Some(_)`; bail safely if it isn't.
+    let Some(buf_size) = reader.output_buffer_size() else {
+        return vec![];
+    };
+    let mut rgba = vec![0u8; buf_size];
     if reader.next_frame(&mut rgba).is_err() {
         return vec![];
     }

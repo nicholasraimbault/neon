@@ -48,3 +48,12 @@ updates:
     commit-message:
       prefix: "ci"
       include: "scope"
+    # `dtolnay/rust-toolchain`'s `@<version>` ref pins a *Rust toolchain
+    # version* (e.g. `@1.85`), not an action release. Dependabot reads
+    # `@1.85` as a semver-ish pin and "bumps" it forward — but the
+    # bumped value (e.g. `1.100`) is a non-existent Rust release, which
+    # breaks MSRV CI on every subsequent PR. Ignore entirely; the
+    # toolchain version is bumped manually alongside Cargo.toml's
+    # `rust-version`.
+    ignore:
+      - dependency-name: "dtolnay/rust-toolchain"
