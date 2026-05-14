@@ -196,7 +196,11 @@ objc2-foundation = { version = "0.2", features = [
 # objc2-app-kit 0.2 likewise gates NSWorkspace (and the
 # NSWorkspaceDidWakeNotification static) behind the NSWorkspace feature.
 objc2-app-kit = { version = "0.2", features = ["NSWorkspace"] }
-block2 = "0.6"
+# Pin block2 to 0.5: 0.6 pairs with objc2 0.6 and changed the
+# `IntoBlock` trait signature. Bumping requires a coordinated
+# migration to the 0.6 ecosystem across `src/daemon/power/macos.rs`
+# (and other macOS FFI sites). Listed in dependabot.yml's ignore.
+block2 = "~0.5"
 # NSStatusItem-backed tray for macOS via Tauri's tray-icon crate.
 # Default features pull libxdo for keyboard accelerators we don't use,
 # so opt out. The ksni migration in commit 735dcfe moved this dep here
