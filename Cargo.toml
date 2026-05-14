@@ -136,9 +136,9 @@ dialoguer = { version = "0.11", default-features = false }
 # the cursor + clear primitives; no async event polling needed.
 crossterm = { version = "0.27", default-features = false }
 # Shell completion script generation for `neon completion <shell>`.
-clap_complete = "4.5"
+clap_complete = "4.6"
 # Man-page generation for `neon manpage`.
-clap_mangen = "0.2"
+clap_mangen = "0.3"
 # Self-update for `neon update self`. We use the rustls TLS backend to
 # stay consistent with the rest of the project; signature verification
 # (zipsign) is deferred to V1.1.
