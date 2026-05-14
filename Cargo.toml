@@ -195,7 +195,7 @@ objc2-foundation = { version = "0.3", features = [
 ] }
 # objc2-app-kit 0.2 likewise gates NSWorkspace (and the
 # NSWorkspaceDidWakeNotification static) behind the NSWorkspace feature.
-objc2-app-kit = { version = "0.2", features = ["NSWorkspace"] }
+objc2-app-kit = { version = "0.3", features = ["NSWorkspace"] }
 block2 = "0.6"
 # NSStatusItem-backed tray for macOS via Tauri's tray-icon crate.
 # Default features pull libxdo for keyboard accelerators we don't use,
