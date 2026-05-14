@@ -142,7 +142,7 @@ clap_mangen = "0.3"
 # Self-update for `neon update self`. We use the rustls TLS backend to
 # stay consistent with the rest of the project; signature verification
 # (zipsign) is deferred to V1.1.
-self_update = { version = "0.41", default-features = false, features = ["rustls"] }
+self_update = { version = "0.44", default-features = false, features = ["rustls"] }
 # URL-encoding for the `neon doctor --share` issue-template URL builder.
 urlencoding = "2"
 # Tracing subscriber's rolling-file appender — used by `crate::log` to
