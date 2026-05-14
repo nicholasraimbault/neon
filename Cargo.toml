@@ -158,7 +158,7 @@ tempfile = "3"
 # tray backend to convert `linux-app/neon.png` into the ARGB32 pixel
 # buffer ksni::Icon expects. ~70KB compile cost; smaller and more
 # focused than the full `image` crate, which we don't otherwise need.
-png = "0.17"
+png = "0.18"
 
 # V3-Phase C deps — gated on the `experimental-bridge` Cargo feature so
 # the default V2 build doesn't pull them in. `quick-xml` parses the
