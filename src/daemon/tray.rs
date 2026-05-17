@@ -14,6 +14,7 @@
 //! │ ──────────────────               │
 //! │ Patch Now                        │  click → emits TrayCommand::PatchAll
 //! │ Update Widevine                  │  click → emits TrayCommand::UpdateWidevine
+//! │                                  │   (refresh CDM cache + re-patch all)
 //! │ ──────────────────               │
 //! │ ☐ Launch at Login                │  toggle → emits TrayCommand::ToggleLaunchAtLogin
 //! │ ──────────────────               │
@@ -123,7 +124,11 @@ pub enum TrayCommand {
     /// User clicked a per-browser status entry — request a patch
     /// targeted at this browser. Carries the browser display name.
     PatchOne(String),
-    /// User clicked "Update Widevine".
+    /// User clicked "Update Widevine". The daemon refreshes the CDM
+    /// cache from upstream and then re-patches every detected browser
+    /// so the on-disk CDM matches what's cached. That two-step combo
+    /// is what users expect from a button named "Update Widevine" —
+    /// a refresh alone would leave the browser bundle stale.
     UpdateWidevine,
     /// User toggled "Launch at Login" — the boolean is the desired state.
     ToggleLaunchAtLogin(bool),

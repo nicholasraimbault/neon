@@ -591,23 +591,21 @@ fn run_event_loop(tray: &Tray, stop: &Arc<AtomicBool>, single_iteration: bool) -
                 tracing::info!(target: "neon::daemon", "tray PatchAll");
                 if !daemon_patch_noop() {
                     let detected = browsers::detect_browsers().unwrap_or_default();
-                    let _ = drive_patch_flow(&detected, None, false);
+                    let results = drive_patch_flow(&detected, None, false);
+                    notify_user::notify_info(&summarize_patch_results(&results));
                 }
             }
             Some(TrayCommand::PatchOne(name)) => {
                 tracing::info!(target: "neon::daemon", browser = %name, "tray PatchOne");
                 if !daemon_patch_noop() {
                     let detected = browsers::detect_browsers().unwrap_or_default();
-                    let _ = drive_patch_flow(&detected, Some(&name), false);
+                    let results = drive_patch_flow(&detected, Some(&name), false);
+                    notify_user::notify_info(&summarize_patch_results(&results));
                 }
             }
             Some(TrayCommand::UpdateWidevine) => {
                 tracing::info!(target: "neon::daemon", "tray UpdateWidevine");
-                if !daemon_patch_noop() {
-                    if let Ok(manifest) = crate::widevine::fetch_manifest() {
-                        let _ = crate::widevine::cache::ensure_cdm_for(&manifest);
-                    }
-                }
+                handle_update_widevine();
             }
             Some(TrayCommand::ToggleLaunchAtLogin(target)) => {
                 tracing::info!(
@@ -615,19 +613,7 @@ fn run_event_loop(tray: &Tray, stop: &Arc<AtomicBool>, single_iteration: bool) -
                     target_state = target,
                     "tray ToggleLaunchAtLogin"
                 );
-                let result = if target {
-                    lifecycle::register()
-                } else {
-                    lifecycle::unregister()
-                };
-                if let Err(e) = result {
-                    tracing::warn!(
-                        target: "neon::daemon",
-                        error = %e,
-                        "lifecycle toggle failed"
-                    );
-                    notify_user::notify_failure(e.category, &e.message);
-                }
+                handle_toggle_launch_at_login(target);
             }
             #[cfg(feature = "experimental-bridge")]
             Some(TrayCommand::StreamUrl(url)) => {
@@ -862,6 +848,11 @@ fn daemon_patch_noop() -> bool {
 /// This is the function the tray's `PatchAll` / `PatchOne` and the IPC
 /// `Patch` handler share — keeping them in lockstep guarantees the two
 /// surfaces produce the same outcome shape.
+///
+/// Browsers whose installed CDM already matches the cached CDM are
+/// reported as success without invoking the patcher — that avoids
+/// pointless root escalation (and breaks the watcher→patch→watcher loop
+/// where re-writing a bundle re-fires the watcher that just patched it).
 #[must_use]
 pub fn drive_patch_flow(
     browsers: &[Browser],
@@ -882,6 +873,25 @@ pub fn drive_patch_flow(
             .map(|b| (b.name().to_string(), false))
             .collect();
     };
+    // Partition into browsers that need a real patch and those already
+    // at the cached version. The latter get reported as success without
+    // the patcher running.
+    let cached_version = crate::widevine::current_cdm()
+        .ok()
+        .flatten()
+        .map(|c| c.version().to_string());
+    let candidates: Vec<&Browser> = browsers
+        .iter()
+        .filter(|b| name_filter.is_none_or(|n| n == b.name()))
+        .collect();
+    let (needs, skip): (Vec<&Browser>, Vec<&Browser>) = candidates
+        .into_iter()
+        .partition(|b| needs_patch(b, cached_version.as_deref(), force));
+    let mut results: Vec<(String, bool)> =
+        skip.iter().map(|b| (b.name().to_string(), true)).collect();
+    if needs.is_empty() {
+        return results;
+    }
     let cdm_provider = || -> Result<crate::widevine::provider::LocalFileCdm> {
         let manifest = crate::widevine::fetch_manifest()?;
         let cached = crate::widevine::cache::ensure_cdm_for(&manifest)?;
@@ -894,17 +904,111 @@ pub fn drive_patch_flow(
         dry_run: false,
         ..Default::default()
     };
+    let needs_owned: Vec<Browser> = needs.into_iter().cloned().collect();
     let reports = crate::cli::patch::run_patch_flow(
-        browsers,
-        name_filter,
+        &needs_owned,
+        None,
         cdm_provider,
         patcher.as_ref(),
         &opts,
     );
-    reports
-        .into_iter()
-        .map(|r| (r.browser, r.success))
-        .collect()
+    results.extend(reports.into_iter().map(|r| (r.browser, r.success)));
+    results
+}
+
+/// Decide whether a browser needs a patch. Returns `true` when forced,
+/// when the browser has no installed CDM, when the on-disk version
+/// differs from the cached one, or when the cached version is unknown
+/// (we can't prove the on-disk one is current, so we err toward
+/// patching).
+#[must_use]
+pub fn needs_patch(browser: &Browser, cached_version: Option<&str>, force: bool) -> bool {
+    if force {
+        return true;
+    }
+    let Some(installed) = browser.installed_cdm_version() else {
+        return true;
+    };
+    match cached_version {
+        Some(c) => installed != c,
+        None => true,
+    }
+}
+
+/// Handler for the tray "Update Widevine" command: refresh the CDM cache,
+/// then re-patch every detected browser, then surface a single toast.
+/// Skips the entire flow under [`daemon_patch_noop`] so tests don't reach
+/// the network or attempt root-escalated writes.
+fn handle_update_widevine() {
+    if daemon_patch_noop() {
+        return;
+    }
+    if let Ok(manifest) = crate::widevine::fetch_manifest() {
+        let _ = crate::widevine::cache::ensure_cdm_for(&manifest);
+    }
+    let detected = browsers::detect_browsers().unwrap_or_default();
+    let results = drive_patch_flow(&detected, None, false);
+    notify_user::notify_info(&format!(
+        "Widevine refreshed; {}",
+        summarize_patch_results(&results)
+    ));
+}
+
+/// Handler for the tray "Launch at login" toggle: register/unregister via
+/// [`lifecycle`] and emit a toast confirming the new state.
+fn handle_toggle_launch_at_login(target: bool) {
+    let result = if target {
+        lifecycle::register()
+    } else {
+        lifecycle::unregister()
+    };
+    match result {
+        Ok(()) => notify_user::notify_info(if target {
+            "Launch at login enabled"
+        } else {
+            "Launch at login disabled"
+        }),
+        Err(e) => {
+            tracing::warn!(
+                target: "neon::daemon",
+                error = %e,
+                "lifecycle toggle failed"
+            );
+            notify_user::notify_failure(e.category, &e.message);
+        }
+    }
+}
+
+/// Produce a one-line user-facing summary of patch results for a toast
+/// notification. Pure — no side effects — so tests can pin every branch.
+///
+/// Cases:
+/// * `[]` → `"No browsers detected"` (no patch could even be tried).
+/// * all succeeded, single → `"<name> patched"`.
+/// * all succeeded, many → `"Patched <N> browsers"`.
+/// * all failed, single → `"Patch failed for <name>"`.
+/// * all failed, many → `"Patch failed for: <a>, <b>"`.
+/// * mixed → `"Patched <X> of <N>; failed: <a>, <b>"`.
+#[must_use]
+pub fn summarize_patch_results(results: &[(String, bool)]) -> String {
+    if results.is_empty() {
+        return "No browsers detected".to_string();
+    }
+    let (ok, failed): (Vec<_>, Vec<_>) = results.iter().partition(|(_, s)| *s);
+    let total = results.len();
+    match (ok.len(), failed.len()) {
+        (1, 0) => format!("{} patched", ok[0].0),
+        (n, 0) => format!("Patched {n} browsers"),
+        (0, 1) => format!("Patch failed for {}", failed[0].0),
+        (0, _) => {
+            let names: Vec<&str> = failed.iter().map(|(n, _)| n.as_str()).collect();
+            format!("Patch failed for: {}", names.join(", "))
+        }
+        (ok_n, _) => {
+            let names: Vec<&str> = failed.iter().map(|(n, _)| n.as_str()).collect();
+            format!("Patched {ok_n} of {total}; failed: {}", names.join(", "))
+        }
+    }
 }
 
 /// Install the global `tracing` subscriber (production only). Called from
@@ -1400,6 +1504,103 @@ mod tests {
         let stop = Arc::new(AtomicBool::new(false));
         tray.synthesize(TrayCommand::UpdateWidevine);
         run_event_loop(&tray, &stop, true).unwrap();
+    }
+
+    /// Build a fake browser whose `WidevineCdm/manifest.json` reports
+    /// the given CDM version. Useful for exercising `needs_patch`.
+    fn fake_patched_browser(name: &str, install: &Path, cdm_version: &str) -> Browser {
+        let cdm = install.join("WidevineCdm");
+        std::fs::create_dir_all(&cdm).unwrap();
+        std::fs::write(
+            cdm.join("manifest.json"),
+            format!(r#"{{"version":"{cdm_version}"}}"#),
+        )
+        .unwrap();
+        Browser {
+            name: name.into(),
+            install_path: install.to_path_buf(),
+            kind: BrowserKind::Detected,
+            framework_name: None,
+        }
+    }
+
+    #[test]
+    fn needs_patch_when_no_cdm_installed() {
+        let tmp = TempDir::new().unwrap();
+        let b = fake_browser("Helium", tmp.path().join("h"));
+        assert!(needs_patch(&b, Some("4.10.2934.0"), false));
+    }
+
+    #[test]
+    fn needs_patch_when_version_differs() {
+        let tmp = TempDir::new().unwrap();
+        let b = fake_patched_browser("Helium", &tmp.path().join("h"), "4.10.2891.0");
+        assert!(needs_patch(&b, Some("4.10.2934.0"), false));
+    }
+
+    #[test]
+    fn skips_patch_when_versions_match() {
+        let tmp = TempDir::new().unwrap();
+        let b = fake_patched_browser("Helium", &tmp.path().join("h"), "4.10.2934.0");
+        assert!(!needs_patch(&b, Some("4.10.2934.0"), false));
+    }
+
+    #[test]
+    fn force_overrides_version_match() {
+        let tmp = TempDir::new().unwrap();
+        let b = fake_patched_browser("Helium", &tmp.path().join("h"), "4.10.2934.0");
+        assert!(needs_patch(&b, Some("4.10.2934.0"), true));
+    }
+
+    #[test]
+    fn needs_patch_when_cache_unknown() {
+        let tmp = TempDir::new().unwrap();
+        let b = fake_patched_browser("Helium", &tmp.path().join("h"), "4.10.2891.0");
+        assert!(needs_patch(&b, None, false));
+    }
+
+    #[test]
+    fn summarize_patch_results_empty_says_no_browsers() {
+        let s = summarize_patch_results(&[]);
+        assert_eq!(s, "No browsers detected");
+    }
+
+    #[test]
+    fn summarize_patch_results_single_success() {
+        let s = summarize_patch_results(&[("Helium".into(), true)]);
+        assert_eq!(s, "Helium patched");
+    }
+
+    #[test]
+    fn summarize_patch_results_all_success() {
+        let s = summarize_patch_results(&[
+            ("Helium".into(), true),
+            ("Thorium".into(), true),
+            ("Chromium".into(), true),
+        ]);
+        assert_eq!(s, "Patched 3 browsers");
+    }
+
+    #[test]
+    fn summarize_patch_results_single_failure() {
+        let s = summarize_patch_results(&[("Helium".into(), false)]);
+        assert_eq!(s, "Patch failed for Helium");
+    }
+
+    #[test]
+    fn summarize_patch_results_all_failure() {
+        let s = summarize_patch_results(&[("Helium".into(), false), ("Thorium".into(), false)]);
+        assert_eq!(s, "Patch failed for: Helium, Thorium");
+    }
+
+    #[test]
+    fn summarize_patch_results_mixed() {
+        let s = summarize_patch_results(&[
+            ("Helium".into(), true),
+            ("Thorium".into(), false),
+            ("Chromium".into(), true),
+        ]);
+        assert_eq!(s, "Patched 2 of 3; failed: Thorium");
     }
 
     /// `drive_patch_flow` honors `DAEMON_PATCH_NOOP_ENV` — short-circuits

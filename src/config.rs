@@ -118,16 +118,38 @@ pub struct HooksConfig {
     pub post_update: Option<String>,
 }
 
+/// Top-level sections from older config schemas that should be silently
+/// dropped on load. Keeps existing user configs from hard-failing the
+/// daemon after an upgrade. Add to this list when a section is removed
+/// from the schema; never repurpose a name.
+const DEPRECATED_TOP_LEVEL_SECTIONS: &[&str] = &["reporting"];
+
 impl Config {
     /// Parse a TOML string into a [`Config`].
+    ///
+    /// Top-level sections listed in [`DEPRECATED_TOP_LEVEL_SECTIONS`] are
+    /// stripped before strict deserialization, so a config carried over
+    /// from an older Neon release doesn't crash the daemon. Unknown
+    /// *non-deprecated* keys still fail loudly to catch typos.
     ///
     /// # Errors
     ///
     /// [`crate::ErrorCategory::StateCorrupted`] if the input is not valid
-    /// TOML or contains unknown fields (we use `deny_unknown_fields` so
-    /// typos surface immediately rather than silently no-oping).
+    /// TOML or contains unknown fields outside the deprecated allow-list.
     pub fn from_toml_str(s: &str) -> Result<Self> {
-        toml::from_str(s).map_err(Error::from)
+        let mut value: toml::Value = toml::from_str(s).map_err(Error::from)?;
+        if let Some(table) = value.as_table_mut() {
+            for &section in DEPRECATED_TOP_LEVEL_SECTIONS {
+                if table.remove(section).is_some() {
+                    tracing::warn!(
+                        target: "neon::config",
+                        section,
+                        "ignoring deprecated top-level config section"
+                    );
+                }
+            }
+        }
+        value.try_into().map_err(Error::from)
     }
 
     /// Serialize back to a TOML string. Useful for round-trip tests and
@@ -269,6 +291,46 @@ on_failure = true
 ";
         let err = Config::from_toml_str(toml).expect_err("unknown field should fail");
         assert_eq!(err.category, crate::ErrorCategory::StateCorrupted);
+    }
+
+    /// Legacy `[reporting]` block (from v1 / v2-rc.0 configs) must be
+    /// tolerated and silently dropped — not hard-fail the daemon on first
+    /// launch after upgrading.
+    #[test]
+    fn legacy_reporting_section_is_silently_dropped() {
+        let toml = r"
+browsers = []
+
+[notifications]
+on_success = true
+on_failure = true
+
+[reporting]
+opt_in_error_reporting = false
+
+[hooks]
+";
+        let cfg = Config::from_toml_str(toml).expect("legacy [reporting] block must parse");
+        assert!(cfg.notifications.on_success);
+        assert!(cfg.notifications.on_failure);
+        assert!(cfg.browsers.is_empty());
+        assert!(cfg.hooks.post_patch.is_none());
+    }
+
+    /// Round-trip through legacy config: re-serializing the parsed Config
+    /// must not emit the `[reporting]` block (the section is gone for good).
+    #[test]
+    fn legacy_reporting_section_does_not_round_trip() {
+        let toml = r"
+[reporting]
+opt_in_error_reporting = false
+";
+        let cfg = Config::from_toml_str(toml).expect("parses");
+        let out = cfg.to_toml_string().expect("serializes");
+        assert!(
+            !out.contains("[reporting]"),
+            "legacy section must not be re-serialized; got:\n{out}"
+        );
     }
 
     #[test]
