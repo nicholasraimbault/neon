@@ -10,12 +10,70 @@ Once V1.0 ships, future entries will be auto-generated from
 
 ## [Unreleased]
 
+## [2.0.0-rc.2] - 2026-05-17
+
+A polish release: every change addresses a bug or UX failure surfaced
+testing rc.1 on a real Linux install. No new features. Strongly
+recommended for anyone running rc.1 — especially macOS users, where
+rc.1 has a hard deadlock on the patch path.
+
+### Fixed
+
+- **macOS `sudo neon patch` deadlocks on the lockfile after a
+  redundant osascript re-prompt** ([#30](https://github.com/nicholasraimbault/neon/issues/30),
+  reported by [@yzaimoglu](https://github.com/yzaimoglu)). The patch
+  flow no longer re-escalates when `geteuid() == 0`, and the
+  `--as-root` child skips the lockfile the parent already holds.
+- **`neon doctor` reported "patched" for browsers whose on-disk CDM
+  was stale.** Doctor now reads each bundle's
+  `WidevineCdm/manifest.json` version, compares it to the cache, and
+  surfaces an inline out-of-date warning (`run "Patch Now"`).
+- **Daemon could enter a watcher → patch → pkexec re-prompt loop.**
+  `drive_patch_flow` now checks `installed_cdm_version()` vs the
+  cached version up front and short-circuits browsers already at the
+  cached version — no patcher invocation, no root escalation, no
+  watcher refire.
+- **Tray "Update Widevine" only refreshed the cache.** Now it also
+  re-patches every detected browser, which is what users expect a
+  button by that name to do.
+- **Every tray action was silent.** PatchAll, PatchOne,
+  UpdateWidevine, and the success branch of ToggleLaunchAtLogin now
+  emit toast notifications.
+- **`~/.config/neon/config.toml` carrying a legacy `[reporting]`
+  block from v1 / rc.0 crashed the daemon on first launch of rc.1**
+  with an opaque `StateCorrupted: TOML parse error`. Config schema
+  now silently drops deprecated top-level sections (typos in current
+  sections still fail loudly).
+- **Migration silently misreported success when the elevated cleanup
+  script failed.** Paths now route to `outcome.skipped` with the
+  failure reason rather than into `outcome.removed`.
+- **Watcher fired on the first event of a browser-update storm,
+  patching on top of an in-flight bundle.** Switched to trailing-edge
+  debounce: the callback only fires after the install path has been
+  quiet for the full debounce window.
+- **Widevine cache TOCTOU between `target_dir.exists()` and the
+  staging→target rename** let two concurrent neon invocations (CLI +
+  daemon, double-clicked installer) corrupt the cache. New
+  `<cache>/download.lock` serializes the slow path.
+- **`platform::format_exit_status`**: replaces the opaque
+  `(exit None)` error message on signal-killed escalation children
+  with a readable `killed by signal N`.
+
 ### Added
 
 - Auto-discover Helium installed via the official `apt` repo (lands
   at `/opt/helium` on Debian / Ubuntu / Pop!_OS) in addition to the
   existing AUR path `/opt/helium-browser-bin`. Thanks to
   [@PeterDrakulic](https://github.com/PeterDrakulic) (#3).
+
+### Performance
+
+- Tray PatchAll / PatchOne reuse the daemon's shared browser list
+  rather than running a fresh `detect_browsers` filesystem walk on
+  every click.
+- CDM cache: clean orphaned CRX3 archives after a successful
+  extraction, and have `prune` sweep any stale ones left by older
+  neon versions (each was ~5–7 MB; they piled up indefinitely).
 
 ## [2.0.0-rc.1] - 2026-05-13
 
