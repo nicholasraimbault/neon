@@ -604,9 +604,17 @@ fn run_event_loop(tray: &Tray, stop: &Arc<AtomicBool>, single_iteration: bool) -
             Some(TrayCommand::UpdateWidevine) => {
                 tracing::info!(target: "neon::daemon", "tray UpdateWidevine");
                 if !daemon_patch_noop() {
+                    // Step 1: refresh manifest + ensure cache has the
+                    // newest CDM (no-op if already current).
                     if let Ok(manifest) = crate::widevine::fetch_manifest() {
                         let _ = crate::widevine::cache::ensure_cdm_for(&manifest);
                     }
+                    // Step 2: push the (possibly newer) cached CDM into
+                    // every detected browser. This is what users expect
+                    // from a tray item labeled "Update Widevine" — a
+                    // refresh alone leaves the on-disk CDM stale.
+                    let detected = browsers::detect_browsers().unwrap_or_default();
+                    let _ = drive_patch_flow(&detected, None, false);
                 }
             }
             Some(TrayCommand::ToggleLaunchAtLogin(target)) => {
