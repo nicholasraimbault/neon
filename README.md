@@ -6,12 +6,12 @@ Neon patches Google's Widevine CDM into Chromium-family browsers that don't ship
 
 ## Install
 
-**Currently shipping a release candidate (v2.0.0-rc.1).** Please file issues if anything misbehaves; promotion to `v2.0.0` stable follows after the rc has had a quiet ~week.
+**Currently shipping a release candidate (v2.0.0-rc.2).** rc.2 is a polish release over rc.1 — strongly recommended for anyone on rc.1, especially macOS users (rc.1 had a hard deadlock in the patch path that's now fixed). Please file issues if anything misbehaves; promotion to `v2.0.0` stable follows after the rc has had a quiet ~week. See [CHANGELOG.md](CHANGELOG.md#200-rc2---2026-05-17) for the full delta.
 
 ```sh
-# Linux and macOS — pinned to the rc.1 tag during the pre-stable window.
+# Linux and macOS — pinned to the rc.2 tag during the pre-stable window.
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/nicholasraimbault/neon/releases/download/v2.0.0-rc.1/neon-installer.sh | sh
+  https://github.com/nicholasraimbault/neon/releases/download/v2.0.0-rc.2/neon-installer.sh | sh
 neon setup
 ```
 
