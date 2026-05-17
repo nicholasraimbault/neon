@@ -897,10 +897,10 @@ mod tests {
             outcome.removed
         );
         // They must appear in `skipped` with a reason that explains why.
-        let skipped_daemon = outcome
-            .skipped
-            .iter()
-            .find(|s| s.path.ends_with("Library/LaunchDaemons/com.neon.fix-drm.plist"));
+        let skipped_daemon = outcome.skipped.iter().find(|s| {
+            s.path
+                .ends_with("Library/LaunchDaemons/com.neon.fix-drm.plist")
+        });
         assert!(
             skipped_daemon.is_some(),
             "LaunchDaemon must be in skipped; got skipped={:?}",
