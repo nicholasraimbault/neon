@@ -1,9 +1,9 @@
 //! Tray icon UI.
 //!
-//! Wraps the [`tray-icon`](https://crates.io/crates/tray-icon) crate
-//! (Tauri's tray-icon library): on Linux it uses GTK +
-//! `libayatana-appindicator` at runtime; on macOS it uses Cocoa
-//! `NSStatusItem`. Both are GUI-dependent.
+//! Uses [`ksni`](https://crates.io/crates/ksni) on Linux to implement a
+//! `StatusNotifierItem` over D-Bus, and
+//! [`tray-icon`](https://crates.io/crates/tray-icon) on macOS for Cocoa's
+//! `NSStatusItem`.
 //!
 //! Per the spec the menu has the following layout:
 //!
@@ -30,15 +30,14 @@
 //!
 //! Per the guardrails (no graphical processes during tests), we keep all
 //! the **menu-construction** logic pure (the [`MenuItemSpec`] / [`menu_layout`]
-//! functions) and unit-test those. The actual `tray-icon` calls live behind
+//! functions) and unit-test those. The platform backend calls live behind
 //! [`Tray::new`], which returns an error in headless / no-tray contexts.
-//! We do not invoke `TrayIconBuilder::new().build()` from any test.
+//! Tests never construct a graphical tray.
 //!
 //! ## `--no-tray` fallback
 //!
-//! On Linux, `tray-icon` requires `libayatana-appindicator3` at runtime.
-//! If the crate fails to initialize (typically because the library isn't
-//! installed), [`Tray::new`] returns [`crate::ErrorCategory::UnsupportedPlatform`]
+//! On Linux, `ksni` requires a reachable session D-Bus. If the backend cannot
+//! initialize, [`Tray::new`] returns [`crate::ErrorCategory::UnsupportedPlatform`]
 //! and the daemon's `run()` function falls back to notifications-only mode
 //! with a `tracing::warn!`.
 
@@ -134,30 +133,6 @@ pub enum TrayCommand {
     ToggleLaunchAtLogin(bool),
     /// User clicked "Quit Neon".
     Quit,
-    /// User clicked a streaming quick-launch (Netflix / Disney+ / HBO
-    /// Max / custom URL). Daemon spawns `cli::stream::start` in a
-    /// non-blocking thread.
-    ///
-    /// Only emitted when the `experimental-bridge` Cargo feature is on.
-    #[cfg(feature = "experimental-bridge")]
-    StreamUrl(String),
-    /// User clicked "Bridge ▶ Pause VM". Daemon calls
-    /// `bridge::libvirt::Domain::stop`.
-    #[cfg(feature = "experimental-bridge")]
-    BridgePause,
-    /// User clicked "Bridge ▶ Resume VM". Daemon calls
-    /// `bridge::libvirt::Domain::start` (after restoring from snapshot
-    /// if needed).
-    #[cfg(feature = "experimental-bridge")]
-    BridgeResume,
-    /// User clicked "Bridge ▶ Repair". Daemon invokes
-    /// `cli::stream::repair::run` with `--auto`.
-    #[cfg(feature = "experimental-bridge")]
-    BridgeRepair,
-    /// User clicked the eval-expiring rearm tray item. Daemon shows the
-    /// PowerShell rearm command via a notification.
-    #[cfg(feature = "experimental-bridge")]
-    BridgeRearm,
 }
 
 /// Pure-data description of one menu entry. Used by the construction
@@ -190,24 +165,6 @@ pub enum MenuItemSpec {
         /// `checked` and re-renders.
         command_when_toggled: TrayCommand,
     },
-    /// Static read-only label (e.g. "Eval: 82 days remaining"). No
-    /// click handler. Used by the V3 Bridge submenu for the eval
-    /// indicator + snapshot-age line.
-    Label {
-        /// Display text.
-        text: String,
-    },
-    /// Submenu — a labeled parent with nested children. Used by the V3
-    /// Bridge ▶ submenu under the `experimental-bridge` feature.
-    /// V3-Phase D's GUI renderer flattens these as a header label
-    /// followed by indented children; future polish can wire real
-    /// nested menus via `tray-icon`'s `Submenu` API.
-    Submenu {
-        /// Label that, when hovered, expands the children.
-        label: String,
-        /// Child entries (rendered indented by V3-Phase D).
-        items: Vec<MenuItemSpec>,
-    },
     /// Visual separator.
     Separator,
 }
@@ -226,10 +183,7 @@ impl MenuItemSpec {
                 let suffix = if *patched { "Patched" } else { "Not Patched" };
                 format!("{prefix} {browser_name} {suffix}")
             }
-            Self::Action { label, .. }
-            | Self::Toggle { label, .. }
-            | Self::Submenu { label, .. } => label.clone(),
-            Self::Label { text } => text.clone(),
+            Self::Action { label, .. } | Self::Toggle { label, .. } => label.clone(),
             Self::Separator => String::new(),
         }
     }
@@ -241,8 +195,6 @@ impl MenuItemSpec {
     }
 
     /// `true` if this item dispatches a [`TrayCommand`] on click.
-    /// Submenus + Labels are not directly actionable (Submenu's
-    /// children are; Labels are read-only).
     #[must_use]
     pub fn is_actionable(&self) -> bool {
         matches!(self, Self::Action { .. } | Self::Toggle { .. })
@@ -258,65 +210,6 @@ pub struct MenuState {
     pub browsers: Vec<BrowserMenuEntry>,
     /// Whether "Launch at Login" is currently enabled.
     pub launch_at_login: bool,
-    /// V3 bridge state. Only present (and only consulted) when the
-    /// `experimental-bridge` Cargo feature is enabled. Default V2 builds
-    /// don't compile this field.
-    #[cfg(feature = "experimental-bridge")]
-    pub bridge: BridgeMenuState,
-}
-
-/// V3 bridge-state snapshot consumed by [`menu_layout`] under the
-/// `experimental-bridge` feature flag.
-///
-/// Default values surface a "bridge not yet provisioned" view: the
-/// streaming quick-launches still appear (so the user can click them
-/// and see the wizard suggestion), but Pause / Resume read as
-/// uninitialized.
-#[cfg(feature = "experimental-bridge")]
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct BridgeMenuState {
-    /// `true` when `neon stream init` has completed (libvirt domain
-    /// defined, snapshot present).
-    pub ready: bool,
-    /// `true` when the VM is currently paused (suspend-to-RAM after a
-    /// `neon stream stop`).
-    pub paused: bool,
-    /// Hours since the most recent snapshot. `None` when no snapshot
-    /// exists yet. Surfaced as a static label in the Bridge submenu;
-    /// V3-Phase F polish renders it as "fresh / stale" badge color.
-    pub snapshot_age_hours: Option<u64>,
-    /// Days remaining on the trial license. `None` for non-trial
-    /// postures. Negative numbers mean expired (trial-mode auto-rearm
-    /// failed or hasn't run yet).
-    pub eval_days_remaining: Option<i64>,
-}
-
-#[cfg(feature = "experimental-bridge")]
-impl BridgeMenuState {
-    /// `true` when the user should see an alert badge — eval expiring
-    /// within 7 days, snapshot >30 days old, or VM continuously paused
-    /// for >24 hours.
-    #[must_use]
-    pub fn needs_attention(&self) -> bool {
-        if let Some(days) = self.eval_days_remaining {
-            if days < 7 {
-                return true;
-            }
-        }
-        if let Some(hours) = self.snapshot_age_hours {
-            if hours / 24 > 30 {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// `true` when the eval-expiry rearm-prompt should appear in the
-    /// top-level menu (not just the submenu).
-    #[must_use]
-    pub fn eval_expiry_visible(&self) -> bool {
-        self.eval_days_remaining.is_some_and(|d| d < 7)
-    }
 }
 
 /// Per-browser menu line state.
@@ -343,11 +236,6 @@ impl BrowserMenuEntry {
 ///
 /// This is the **pure** function that tests assert on — no GUI handles,
 /// no crate dependencies.
-///
-/// Under the `experimental-bridge` Cargo feature, additional items are
-/// injected after the patch controls (streaming quick-launches + a
-/// `Bridge ▶` submenu). Default V2 builds compile no V3 code; the menu
-/// shape is unchanged.
 #[must_use]
 pub fn menu_layout(state: &MenuState) -> Vec<MenuItemSpec> {
     let mut out = Vec::with_capacity(8 + state.browsers.len());
@@ -372,10 +260,6 @@ pub fn menu_layout(state: &MenuState) -> Vec<MenuItemSpec> {
         command: TrayCommand::UpdateWidevine,
     });
 
-    // 3. V3 streaming + bridge submenu (only under feature flag).
-    #[cfg(feature = "experimental-bridge")]
-    inject_bridge_items(&mut out, &state.bridge);
-
     out.push(MenuItemSpec::Separator);
     // 4. Launch-at-Login toggle.
     out.push(MenuItemSpec::Toggle {
@@ -390,147 +274,6 @@ pub fn menu_layout(state: &MenuState) -> Vec<MenuItemSpec> {
         command: TrayCommand::Quit,
     });
     out
-}
-
-/// Inject the V3 streaming quick-launches + Bridge submenu into the
-/// supplied menu vec, between the patch controls and the
-/// Launch-at-Login section.
-///
-/// Layout:
-/// ```text
-/// ──── separator ────
-/// Stream Netflix
-/// Stream Disney+
-/// Stream HBO Max
-/// Stream… (custom URL)         (V3-Phase F: opens prompt)
-/// ──── separator ────
-/// Bridge ▶
-///   Status: Ready / Paused / Not provisioned
-///   Pause VM
-///   Resume VM
-///   Repair
-///   Eval: N days remaining     (only when on trial)
-///   Snapshot: age              (only when snapshot present)
-/// ```
-///
-/// The order keeps the most-frequent action (streaming quick-launch)
-/// at the top of the V3 block.
-#[cfg(feature = "experimental-bridge")]
-fn inject_bridge_items(out: &mut Vec<MenuItemSpec>, bridge: &BridgeMenuState) {
-    out.push(MenuItemSpec::Separator);
-
-    // V3-Phase F: surface eval-expiry alert at the top level so the
-    // user can rearm without drilling into the submenu.
-    if bridge.eval_expiry_visible() {
-        if let Some(days) = bridge.eval_days_remaining {
-            let label = if days >= 0 {
-                format!("⚠ Eval: {days} days remaining")
-            } else {
-                format!("⚠ Eval expired ({} days ago)", -days)
-            };
-            out.push(MenuItemSpec::Action {
-                label,
-                command: TrayCommand::BridgeRearm,
-            });
-        }
-    }
-
-    out.push(MenuItemSpec::Action {
-        label: "Stream Netflix".into(),
-        command: TrayCommand::StreamUrl("https://netflix.com".into()),
-    });
-    out.push(MenuItemSpec::Action {
-        label: "Stream Disney+".into(),
-        command: TrayCommand::StreamUrl("https://disneyplus.com".into()),
-    });
-    out.push(MenuItemSpec::Action {
-        label: "Stream HBO Max".into(),
-        command: TrayCommand::StreamUrl("https://max.com".into()),
-    });
-    out.push(MenuItemSpec::Action {
-        label: "Stream… (custom URL)".into(),
-        // V3-Phase F: empty URL is a sentinel for "open prompt" — the
-        // daemon's dispatch handler currently logs a TODO and emits a
-        // notification pointing the user at the CLI.
-        command: TrayCommand::StreamUrl(String::new()),
-    });
-    out.push(MenuItemSpec::Separator);
-
-    // Bridge submenu. V3-Phase F adds an alert badge when needs_attention.
-    let mut sub = Vec::with_capacity(6);
-    sub.push(MenuItemSpec::Label {
-        text: bridge_status_label(bridge),
-    });
-    sub.push(MenuItemSpec::Action {
-        label: "Pause VM".into(),
-        command: TrayCommand::BridgePause,
-    });
-    sub.push(MenuItemSpec::Action {
-        label: "Resume VM".into(),
-        command: TrayCommand::BridgeResume,
-    });
-    sub.push(MenuItemSpec::Action {
-        label: "Repair".into(),
-        command: TrayCommand::BridgeRepair,
-    });
-    if let Some(days) = bridge.eval_days_remaining {
-        sub.push(MenuItemSpec::Label {
-            text: eval_days_label(days),
-        });
-        // V3-Phase F: rearm action lives inside submenu too.
-        sub.push(MenuItemSpec::Action {
-            label: "Rearm trial".into(),
-            command: TrayCommand::BridgeRearm,
-        });
-    }
-    if let Some(hours) = bridge.snapshot_age_hours {
-        sub.push(MenuItemSpec::Label {
-            text: snapshot_age_label(hours),
-        });
-    }
-    let label = if bridge.needs_attention() {
-        "⚠ Bridge ▶".to_string()
-    } else {
-        "Bridge ▶".to_string()
-    };
-    out.push(MenuItemSpec::Submenu { label, items: sub });
-}
-
-/// Render the Bridge submenu's "Status: ..." header label.
-#[cfg(feature = "experimental-bridge")]
-fn bridge_status_label(bridge: &BridgeMenuState) -> String {
-    if !bridge.ready {
-        return "Status: Not provisioned".into();
-    }
-    if bridge.paused {
-        "Status: Paused".into()
-    } else {
-        "Status: Ready".into()
-    }
-}
-
-/// Render the eval-days indicator label.
-///
-/// * `days >= 0` → "Eval: N days remaining"
-/// * `days < 0` → "Eval: expired (N days ago)"
-#[cfg(feature = "experimental-bridge")]
-fn eval_days_label(days: i64) -> String {
-    if days >= 0 {
-        format!("Eval: {days} days remaining")
-    } else {
-        format!("Eval: expired ({} days ago)", -days)
-    }
-}
-
-/// Render the snapshot-age indicator label.
-#[cfg(feature = "experimental-bridge")]
-fn snapshot_age_label(hours: u64) -> String {
-    if hours < 24 {
-        format!("Snapshot: {hours}h old")
-    } else {
-        let days = hours / 24;
-        format!("Snapshot: {days}d old")
-    }
 }
 
 /// Public tray handle. Holds the underlying `tray-icon` resource (when
@@ -645,16 +388,12 @@ impl ksni::Tray for NeonKsniTray {
 /// representation. Each actionable item gets a closure that sends the
 /// item's [`TrayCommand`] back to the daemon over the supplied
 /// `Sender`.
-///
-/// Recurses on submenus — `ksni` supports real nested menus, so V3's
-/// `Bridge ▶` submenu renders properly without the flatten-and-indent
-/// hack the macOS `tray-icon` path uses.
 #[cfg(target_os = "linux")]
 fn ksni_menu_from_specs(
     specs: &[MenuItemSpec],
     tx: &Sender<TrayCommand>,
 ) -> Vec<ksni::MenuItem<NeonKsniTray>> {
-    use ksni::menu::{CheckmarkItem, StandardItem, SubMenu};
+    use ksni::menu::{CheckmarkItem, StandardItem};
     use ksni::MenuItem as M;
 
     specs
@@ -707,18 +446,6 @@ fn ksni_menu_from_specs(
                 }
                 .into()
             }
-            MenuItemSpec::Submenu { label, items } => SubMenu {
-                label: label.clone(),
-                submenu: ksni_menu_from_specs(items, tx),
-                ..Default::default()
-            }
-            .into(),
-            MenuItemSpec::Label { text } => StandardItem {
-                label: text.clone(),
-                enabled: false,
-                ..Default::default()
-            }
-            .into(),
             MenuItemSpec::Separator => M::Separator,
         })
         .collect()
@@ -938,9 +665,6 @@ impl Tray {
 /// Each entry in the menu layout gets a unique stable id derived from
 /// its position + content; we re-build the map every time we re-render.
 ///
-/// Submenu children are also routed: for index `idx` the submenu, the
-/// submenu's children get ids prefixed with `<submenu-id>-child-<n>`.
-///
 /// On Linux the tray uses `ksni`, where each menu item carries its own
 /// `activate` callback — no central routing table is needed. The
 /// function (and tests below) remain compiled on all platforms because
@@ -956,23 +680,15 @@ fn build_routes(state: &MenuState) -> std::collections::HashMap<String, TrayComm
     routes
 }
 
-/// Insert routes for a single item (and recursively for submenu
-/// children).
-///
-/// `parent_id` is `Some(parent)` when we're inside a submenu — child
-/// ids are derived from the submenu's id + the child's index so they
-/// stay unique across re-renders.
+/// Insert a route for a single actionable item.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn route_item_into(
     routes: &mut std::collections::HashMap<String, TrayCommand>,
     idx: usize,
     item: &MenuItemSpec,
-    parent_id: Option<&str>,
+    _parent_id: Option<&str>,
 ) {
-    let id = match parent_id {
-        Some(p) => format!("{p}-child-{idx}"),
-        None => menu_item_id(idx, item),
-    };
+    let id = menu_item_id(idx, item);
     match item {
         MenuItemSpec::Action { command, .. } => {
             routes.insert(id, command.clone());
@@ -986,14 +702,7 @@ fn route_item_into(
         MenuItemSpec::BrowserStatus { browser_name, .. } => {
             routes.insert(id, TrayCommand::PatchOne(browser_name.clone()));
         }
-        MenuItemSpec::Submenu { items, .. } => {
-            // Recurse: submenu's own id isn't actionable, but the
-            // children carry their own commands.
-            for (child_idx, child) in items.iter().enumerate() {
-                route_item_into(routes, child_idx, child, Some(&id));
-            }
-        }
-        MenuItemSpec::Label { .. } | MenuItemSpec::Separator => {}
+        MenuItemSpec::Separator => {}
     }
 }
 
@@ -1008,8 +717,6 @@ fn menu_item_id(index: usize, item: &MenuItemSpec) -> String {
         }
         MenuItemSpec::Action { label, .. } => format!("neon-action-{index}-{label}"),
         MenuItemSpec::Toggle { label, .. } => format!("neon-toggle-{index}-{label}"),
-        MenuItemSpec::Submenu { label, .. } => format!("neon-submenu-{index}-{label}"),
-        MenuItemSpec::Label { text } => format!("neon-label-{index}-{text}"),
         MenuItemSpec::Separator => format!("neon-sep-{index}"),
     }
 }
@@ -1042,52 +749,6 @@ fn build_tray_icon(
             }
             MenuItemSpec::Toggle { checked, .. } => {
                 let item = CheckMenuItem::with_id(id, spec.label(), true, *checked, None);
-                let _ = menu.append(&item);
-            }
-            MenuItemSpec::Submenu { label, items } => {
-                // V3-Phase D flattens submenus: emit the header as a
-                // disabled label, then indented children with derived
-                // ids matching `route_item_into`. Real nested-menu
-                // rendering is a V3-Phase F polish item.
-                let header = MenuItem::with_id(id.clone(), label.clone(), false, None);
-                let _ = menu.append(&header);
-                for (child_idx, child) in items.iter().enumerate() {
-                    let child_id = MenuId::new(format!("{}-child-{child_idx}", id.0));
-                    match child {
-                        MenuItemSpec::Action { .. } => {
-                            let item = MenuItem::with_id(
-                                child_id,
-                                format!("    {}", child.label()),
-                                true,
-                                None,
-                            );
-                            let _ = menu.append(&item);
-                        }
-                        MenuItemSpec::Toggle { checked, .. } => {
-                            let item = CheckMenuItem::with_id(
-                                child_id,
-                                format!("    {}", child.label()),
-                                true,
-                                *checked,
-                                None,
-                            );
-                            let _ = menu.append(&item);
-                        }
-                        MenuItemSpec::Label { .. } => {
-                            let item = MenuItem::with_id(
-                                child_id,
-                                format!("    {}", child.label()),
-                                false,
-                                None,
-                            );
-                            let _ = menu.append(&item);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            MenuItemSpec::Label { text } => {
-                let item = MenuItem::with_id(id, text.clone(), false, None);
                 let _ = menu.append(&item);
             }
             MenuItemSpec::Separator => {
@@ -1172,9 +833,6 @@ mod tests {
 
     /// Empty browser list: no per-browser rows, no leading separator.
     /// The non-browser items still appear in the canonical order.
-    /// (Default V2 build only — feature-on adds 7 V3 entries; see
-    /// [`empty_browsers_with_feature_on`].)
-    #[cfg(not(feature = "experimental-bridge"))]
     #[test]
     fn empty_browsers_skips_per_browser_block_but_keeps_actions() {
         let state = MenuState {
@@ -1211,8 +869,6 @@ mod tests {
     }
 
     /// Two browsers: rows + separator + actions + separator + toggle + sep + quit.
-    /// (Default V2 build only.)
-    #[cfg(not(feature = "experimental-bridge"))]
     #[test]
     fn two_browsers_produces_canonical_layout() {
         let state = MenuState {
@@ -1297,14 +953,10 @@ mod tests {
         let state_off = MenuState {
             browsers: vec![],
             launch_at_login: false,
-            #[cfg(feature = "experimental-bridge")]
-            bridge: BridgeMenuState::default(),
         };
         let state_on = MenuState {
             browsers: vec![],
             launch_at_login: true,
-            #[cfg(feature = "experimental-bridge")]
-            bridge: BridgeMenuState::default(),
         };
         let layout_off = menu_layout(&state_off);
         let layout_on = menu_layout(&state_on);
@@ -1352,8 +1004,6 @@ mod tests {
         let t = Tray::headless(MenuState {
             browsers: vec![],
             launch_at_login: false,
-            #[cfg(feature = "experimental-bridge")]
-            bridge: BridgeMenuState::default(),
         });
         assert!(!t.has_ui());
     }
@@ -1365,8 +1015,6 @@ mod tests {
         let t = Tray::headless(MenuState {
             browsers: vec![],
             launch_at_login: false,
-            #[cfg(feature = "experimental-bridge")]
-            bridge: BridgeMenuState::default(),
         });
         t.synthesize(TrayCommand::PatchAll);
         let cmd = t.try_recv().expect("command pending");
@@ -1376,9 +1024,6 @@ mod tests {
     }
 
     /// `set_state` updates the snapshot and the rendered layout.
-    /// (Default V2 build only — feature-on adds 7 V3 entries; see
-    /// the V3 test module below.)
-    #[cfg(not(feature = "experimental-bridge"))]
     #[test]
     fn set_state_updates_layout() {
         let t = Tray::headless(MenuState {
@@ -1411,17 +1056,12 @@ mod tests {
                 false,
             )],
             launch_at_login: true,
-            #[cfg(feature = "experimental-bridge")]
-            bridge: BridgeMenuState::default(),
         };
         let t = Tray::headless(state.clone());
         assert_eq!(t.state(), state);
     }
 
     /// `build_routes` covers every actionable menu item.
-    /// (Default V2 build only — feature-on adds 4 stream actions + 3
-    /// bridge submenu actions; see the V3 test module below.)
-    #[cfg(not(feature = "experimental-bridge"))]
     #[test]
     fn build_routes_covers_actions_and_browsers_and_toggles() {
         let state = MenuState {
@@ -1474,8 +1114,6 @@ mod tests {
             let state = MenuState {
                 browsers,
                 launch_at_login: false,
-                #[cfg(feature = "experimental-bridge")]
-                bridge: BridgeMenuState::default(),
             };
             let layout = menu_layout(&state);
             match layout.last().unwrap() {
@@ -1497,8 +1135,6 @@ mod tests {
         let t = Tray::headless(MenuState {
             browsers: vec![],
             launch_at_login: false,
-            #[cfg(feature = "experimental-bridge")]
-            bridge: BridgeMenuState::default(),
         });
         assert!(t.try_recv().is_none());
     }
@@ -1513,434 +1149,5 @@ mod tests {
         let m: std::collections::HashMap<String, TrayCommand> = std::collections::HashMap::new();
         // Drop ensures the type-checker actually verifies the type.
         drop(m);
-    }
-}
-
-/// V3 bridge menu tests — only compiled with `experimental-bridge`.
-///
-/// These mirror the default-feature tests above but assert against the
-/// V3-augmented menu layout: 4 streaming quick-launches + the
-/// `Bridge ▶` submenu inserted between the patch controls and the
-/// Launch-at-Login section.
-#[cfg(all(test, feature = "experimental-bridge"))]
-mod tests_v3 {
-    use super::*;
-
-    fn empty_state(bridge: BridgeMenuState) -> MenuState {
-        MenuState {
-            browsers: vec![],
-            launch_at_login: false,
-            bridge,
-        }
-    }
-
-    /// Empty browsers + default bridge state: layout grows from 6 → 13
-    /// items (sep + 4 stream actions + sep + Bridge submenu).
-    #[test]
-    fn empty_browsers_v3_layout_includes_streaming_and_bridge_submenu() {
-        let state = empty_state(BridgeMenuState::default());
-        let layout = menu_layout(&state);
-        // Expected: PatchAll + UpdateWidevine + Sep + Stream Netflix +
-        // Stream Disney+ + Stream HBO Max + Stream… + Sep + Bridge ▶
-        // + Sep + Toggle + Sep + Quit = 13.
-        assert_eq!(
-            layout.len(),
-            13,
-            "expected 13 items in V3 menu, got {} ({layout:#?})",
-            layout.len()
-        );
-        // PatchAll + UpdateWidevine still come first.
-        assert!(matches!(
-            &layout[0],
-            MenuItemSpec::Action {
-                command: TrayCommand::PatchAll,
-                ..
-            }
-        ));
-        assert!(matches!(
-            &layout[1],
-            MenuItemSpec::Action {
-                command: TrayCommand::UpdateWidevine,
-                ..
-            }
-        ));
-        // Then the V3 separator + 4 streaming actions.
-        assert!(matches!(&layout[2], MenuItemSpec::Separator));
-        for (idx, expected_url) in [(3, "netflix.com"), (4, "disneyplus.com"), (5, "max.com")] {
-            match &layout[idx] {
-                MenuItemSpec::Action {
-                    command: TrayCommand::StreamUrl(url),
-                    label,
-                } => {
-                    assert!(label.starts_with("Stream "), "label was {label:?}");
-                    assert!(url.contains(expected_url), "url was {url:?}");
-                }
-                other => panic!("idx {idx} expected stream action, got {other:?}"),
-            }
-        }
-        // Custom URL slot has empty URL string.
-        match &layout[6] {
-            MenuItemSpec::Action {
-                command: TrayCommand::StreamUrl(url),
-                ..
-            } => assert!(url.is_empty()),
-            other => panic!("idx 6 expected custom-URL stream, got {other:?}"),
-        }
-        // Then a separator + Bridge submenu.
-        assert!(matches!(&layout[7], MenuItemSpec::Separator));
-        match &layout[8] {
-            MenuItemSpec::Submenu { label, items } => {
-                assert!(label.contains("Bridge"));
-                // Status label + Pause + Resume + Repair = 4 (no eval/snap by default)
-                assert_eq!(items.len(), 4, "default submenu size");
-            }
-            other => panic!("idx 8 expected Submenu, got {other:?}"),
-        }
-        // Then sep + toggle + sep + quit.
-        assert!(matches!(&layout[9], MenuItemSpec::Separator));
-        assert!(matches!(&layout[10], MenuItemSpec::Toggle { .. }));
-        assert!(matches!(&layout[11], MenuItemSpec::Separator));
-        assert!(matches!(
-            &layout[12],
-            MenuItemSpec::Action {
-                command: TrayCommand::Quit,
-                ..
-            }
-        ));
-    }
-
-    /// `eval_days_remaining = Some(N)` adds the eval label inside the
-    /// Bridge submenu. V3-Phase F: also adds a "Rearm trial" action.
-    #[test]
-    fn bridge_submenu_includes_eval_indicator_when_on_trial() {
-        let state = empty_state(BridgeMenuState {
-            ready: true,
-            paused: false,
-            snapshot_age_hours: None,
-            eval_days_remaining: Some(82),
-        });
-        let layout = menu_layout(&state);
-        // 82 days > 7-day threshold → no top-level rearm prompt; submenu
-        // is at index 8 still.
-        let bridge_idx = layout
-            .iter()
-            .position(|i| matches!(i, MenuItemSpec::Submenu { .. }))
-            .expect("submenu exists");
-        match &layout[bridge_idx] {
-            MenuItemSpec::Submenu { items, .. } => {
-                // V3-Phase F: 4 default + 1 eval label + 1 rearm action = 6.
-                assert_eq!(items.len(), 6);
-                let eval_label = items
-                    .iter()
-                    .find_map(|i| match i {
-                        MenuItemSpec::Label { text } if text.contains("Eval") => Some(text),
-                        _ => None,
-                    })
-                    .expect("eval label present");
-                assert!(eval_label.contains("82"), "got {eval_label:?}");
-                // Rearm action present.
-                let saw_rearm = items.iter().any(|i| {
-                    matches!(
-                        i,
-                        MenuItemSpec::Action {
-                            command: TrayCommand::BridgeRearm,
-                            ..
-                        }
-                    )
-                });
-                assert!(saw_rearm, "Rearm trial action missing in submenu");
-            }
-            other => panic!("expected Submenu, got {other:?}"),
-        }
-    }
-
-    /// Negative eval days renders as "expired" + surfaces a top-level
-    /// alert badge.
-    #[test]
-    fn bridge_submenu_eval_label_marks_expired() {
-        let state = empty_state(BridgeMenuState {
-            ready: true,
-            paused: false,
-            snapshot_age_hours: None,
-            eval_days_remaining: Some(-7),
-        });
-        let layout = menu_layout(&state);
-        // V3-Phase F: -7 days < 7 → top-level alert badge appears.
-        let saw_top_rearm = layout.iter().any(|i| {
-            matches!(
-                i,
-                MenuItemSpec::Action {
-                    command: TrayCommand::BridgeRearm,
-                    ..
-                }
-            )
-        });
-        assert!(saw_top_rearm, "expected top-level rearm alert badge");
-        // Submenu's eval label still says "expired (7 days)".
-        let bridge = layout
-            .iter()
-            .find_map(|i| match i {
-                MenuItemSpec::Submenu { items, .. } => Some(items),
-                _ => None,
-            })
-            .expect("submenu exists");
-        let eval_label = bridge
-            .iter()
-            .find_map(|i| match i {
-                MenuItemSpec::Label { text } if text.contains("Eval") => Some(text),
-                _ => None,
-            })
-            .expect("eval label present");
-        assert!(
-            eval_label.contains("expired") && eval_label.contains('7'),
-            "got {eval_label:?}"
-        );
-    }
-
-    /// V3-Phase F: `needs_attention` flips the submenu label to "⚠ Bridge ▶".
-    #[test]
-    fn submenu_label_shows_alert_badge_when_attention_needed() {
-        let state = empty_state(BridgeMenuState {
-            ready: true,
-            paused: false,
-            snapshot_age_hours: None,
-            eval_days_remaining: Some(2),
-        });
-        let layout = menu_layout(&state);
-        let bridge_label = layout
-            .iter()
-            .find_map(|i| match i {
-                MenuItemSpec::Submenu { label, .. } => Some(label.clone()),
-                _ => None,
-            })
-            .expect("submenu");
-        assert!(
-            bridge_label.contains('⚠'),
-            "expected alert glyph in submenu label; got {bridge_label:?}"
-        );
-    }
-
-    /// V3-Phase F: `eval_expiry_visible` returns true only when < 7 days.
-    #[test]
-    fn eval_expiry_visible_flips_at_7_day_threshold() {
-        let healthy = BridgeMenuState {
-            eval_days_remaining: Some(8),
-            ..BridgeMenuState::default()
-        };
-        assert!(!healthy.eval_expiry_visible());
-        let warn = BridgeMenuState {
-            eval_days_remaining: Some(6),
-            ..BridgeMenuState::default()
-        };
-        assert!(warn.eval_expiry_visible());
-        let none = BridgeMenuState {
-            eval_days_remaining: None,
-            ..BridgeMenuState::default()
-        };
-        assert!(!none.eval_expiry_visible());
-    }
-
-    /// V3-Phase F: `needs_attention` returns true for stale snapshots
-    /// and expiring evals.
-    #[test]
-    fn needs_attention_flags_stale_and_expiring() {
-        let healthy = BridgeMenuState::default();
-        assert!(!healthy.needs_attention());
-
-        let expiring_eval = BridgeMenuState {
-            eval_days_remaining: Some(2),
-            ..BridgeMenuState::default()
-        };
-        assert!(expiring_eval.needs_attention());
-
-        let stale_snap = BridgeMenuState {
-            snapshot_age_hours: Some(40 * 24),
-            ..BridgeMenuState::default()
-        };
-        assert!(stale_snap.needs_attention());
-    }
-
-    /// `snapshot_age_hours = Some(48)` adds a "2d" snapshot label.
-    #[test]
-    fn bridge_submenu_includes_snapshot_age() {
-        let state = empty_state(BridgeMenuState {
-            ready: true,
-            paused: false,
-            snapshot_age_hours: Some(48),
-            eval_days_remaining: None,
-        });
-        let layout = menu_layout(&state);
-        if let MenuItemSpec::Submenu { items, .. } = &layout[8] {
-            let snap_label = items
-                .iter()
-                .find_map(|i| match i {
-                    MenuItemSpec::Label { text } if text.contains("Snapshot") => Some(text),
-                    _ => None,
-                })
-                .expect("snapshot label present");
-            assert!(snap_label.contains("2d"), "got {snap_label:?}");
-        }
-    }
-
-    /// Bridge status text reflects ready / paused / not-provisioned.
-    #[test]
-    fn bridge_status_label_for_each_state() {
-        assert!(bridge_status_label(&BridgeMenuState::default()).contains("Not provisioned"));
-        assert!(bridge_status_label(&BridgeMenuState {
-            ready: true,
-            paused: false,
-            snapshot_age_hours: None,
-            eval_days_remaining: None,
-        })
-        .contains("Ready"));
-        assert!(bridge_status_label(&BridgeMenuState {
-            ready: true,
-            paused: true,
-            snapshot_age_hours: None,
-            eval_days_remaining: None,
-        })
-        .contains("Paused"));
-    }
-
-    /// `build_routes` includes the V3 stream + bridge actions.
-    #[test]
-    fn v3_build_routes_includes_stream_and_bridge_actions() {
-        let state = empty_state(BridgeMenuState::default());
-        let routes = build_routes(&state);
-        let mut saw_stream = false;
-        let mut saw_pause = false;
-        let mut saw_resume = false;
-        let mut saw_repair = false;
-        for cmd in routes.values() {
-            match cmd {
-                TrayCommand::StreamUrl(_) => saw_stream = true,
-                TrayCommand::BridgePause => saw_pause = true,
-                TrayCommand::BridgeResume => saw_resume = true,
-                TrayCommand::BridgeRepair => saw_repair = true,
-                _ => {}
-            }
-        }
-        assert!(saw_stream, "StreamUrl missing in routes");
-        assert!(saw_pause, "BridgePause missing in routes");
-        assert!(saw_resume, "BridgeResume missing in routes");
-        assert!(saw_repair, "BridgeRepair missing in routes");
-    }
-
-    /// Each streaming quick-launch has a distinct URL.
-    #[test]
-    fn stream_urls_are_distinct() {
-        let state = empty_state(BridgeMenuState::default());
-        let layout = menu_layout(&state);
-        let urls: Vec<String> = layout
-            .iter()
-            .filter_map(|i| match i {
-                MenuItemSpec::Action {
-                    command: TrayCommand::StreamUrl(url),
-                    ..
-                } => Some(url.clone()),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(urls.len(), 4, "expected 4 stream URLs");
-        // Three known URLs + one empty (custom prompt slot).
-        let mut sorted = urls.clone();
-        sorted.sort();
-        assert!(sorted.windows(2).all(|w| w[0] != w[1]), "duplicates");
-    }
-
-    /// `eval_days_label` formats positive + negative + zero days.
-    #[test]
-    fn eval_days_label_formatting() {
-        assert!(eval_days_label(0).contains("0 days"));
-        assert!(eval_days_label(1).contains("1 days"));
-        assert!(eval_days_label(82).contains("82 days"));
-        assert!(eval_days_label(-1).contains("expired"));
-        assert!(eval_days_label(-1).contains("1 days"));
-    }
-
-    /// `snapshot_age_label` formats hours vs days.
-    #[test]
-    fn snapshot_age_label_formatting() {
-        assert!(snapshot_age_label(0).contains("0h"));
-        assert!(snapshot_age_label(23).contains("23h"));
-        assert!(snapshot_age_label(24).contains("1d"));
-        assert!(snapshot_age_label(48).contains("2d"));
-        assert!(snapshot_age_label(168).contains("7d"));
-    }
-
-    /// `Submenu` items have a non-empty label.
-    #[test]
-    fn submenu_label_is_non_empty() {
-        let state = empty_state(BridgeMenuState::default());
-        let layout = menu_layout(&state);
-        if let MenuItemSpec::Submenu { label, .. } = &layout[8] {
-            assert!(!label.is_empty());
-            assert!(label.contains("Bridge"));
-        }
-    }
-
-    /// `Label` items report `is_actionable() == false`.
-    #[test]
-    fn label_items_are_not_actionable() {
-        let l = MenuItemSpec::Label {
-            text: "Status: Ready".into(),
-        };
-        assert!(!l.is_separator());
-        assert!(!l.is_actionable());
-        assert_eq!(l.label(), "Status: Ready");
-    }
-
-    /// `Submenu` items report `is_actionable() == false` (children are
-    /// actionable; the header isn't).
-    #[test]
-    fn submenu_items_are_not_actionable() {
-        let s = MenuItemSpec::Submenu {
-            label: "Bridge ▶".into(),
-            items: vec![],
-        };
-        assert!(!s.is_separator());
-        assert!(!s.is_actionable());
-        assert_eq!(s.label(), "Bridge ▶");
-    }
-
-    /// `BridgeMenuState::default` is "not provisioned, no trial, no
-    /// snapshot".
-    #[test]
-    fn bridge_menu_state_default_is_blank() {
-        let s = BridgeMenuState::default();
-        assert!(!s.ready);
-        assert!(!s.paused);
-        assert!(s.snapshot_age_hours.is_none());
-        assert!(s.eval_days_remaining.is_none());
-    }
-
-    /// `route_item_into` for a submenu emits one route per actionable
-    /// child, each with a distinct id derived from the parent id.
-    #[test]
-    fn route_item_into_submenu_handles_children() {
-        let mut routes = std::collections::HashMap::new();
-        let sub = MenuItemSpec::Submenu {
-            label: "Bridge ▶".into(),
-            items: vec![
-                MenuItemSpec::Action {
-                    label: "Pause VM".into(),
-                    command: TrayCommand::BridgePause,
-                },
-                MenuItemSpec::Action {
-                    label: "Resume VM".into(),
-                    command: TrayCommand::BridgeResume,
-                },
-                MenuItemSpec::Label {
-                    text: "Status: Ready".into(),
-                },
-            ],
-        };
-        route_item_into(&mut routes, 8, &sub, None);
-        // 2 actionable children → 2 routes (Label is read-only).
-        assert_eq!(routes.len(), 2);
-        let mut cmds: Vec<TrayCommand> = routes.values().cloned().collect();
-        cmds.sort_by_key(|c| format!("{c:?}"));
-        assert!(cmds.contains(&TrayCommand::BridgePause));
-        assert!(cmds.contains(&TrayCommand::BridgeResume));
     }
 }

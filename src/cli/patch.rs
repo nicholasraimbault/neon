@@ -21,7 +21,7 @@ use crate::browsers::{self, Browser};
 use crate::cli::OutputOptions;
 use crate::error::{Error, Result};
 use crate::patch::{self, PatchOptions, PatchOutcome, PlatformPatcher};
-use crate::widevine::{self, provider::LocalFileCdm};
+use crate::widevine::{self, CachedCdm};
 
 /// Args for `neon patch`.
 #[derive(Debug, Clone, Default)]
@@ -93,12 +93,8 @@ impl PatchReport {
 /// constrains it: when `Some(name)`, only the matching browser is
 /// patched; otherwise every entry is patched.
 ///
-/// `cdm_provider` is a closure that returns a
-/// [`crate::widevine::provider::LocalFileCdm`] — tests inject a
-/// synthetic CDM so they don't trigger downloads. V3-Phase A scaffolding:
-/// the closure produces a [`LocalFileCdm`] explicitly because V2 has
-/// only that one impl. V3 work will widen this to `Box<dyn CdmProvider>`
-/// when `BridgeCdm` lands.
+/// `cdm_resolver` is a closure that returns a [`CachedCdm`] — tests inject a
+/// synthetic CDM so they don't trigger downloads.
 ///
 /// `patcher` is the [`PlatformPatcher`] (a mock in tests, the host
 /// impl in production via [`patch::host_patcher`]).
@@ -110,12 +106,12 @@ impl PatchReport {
 pub fn run_patch_flow<F>(
     browsers: &[Browser],
     name_filter: Option<&str>,
-    cdm_provider: F,
+    cdm_resolver: F,
     patcher: &dyn PlatformPatcher,
     options: &PatchOptions,
 ) -> Vec<PatchReport>
 where
-    F: FnOnce() -> Result<LocalFileCdm>,
+    F: FnOnce() -> Result<CachedCdm>,
 {
     let candidates: Vec<&Browser> = browsers
         .iter()
@@ -128,7 +124,7 @@ where
     // least one candidate. If CDM resolution fails, we still return a
     // failure report per candidate rather than erroring out — the user
     // sees what would have happened.
-    let cdm = match cdm_provider() {
+    let cdm = match cdm_resolver() {
         Ok(c) => c,
         Err(e) => {
             return candidates
@@ -146,18 +142,16 @@ where
         .collect()
 }
 
-/// Production CDM provider: fetches the manifest + ensures the cache
-/// is current, returning a [`LocalFileCdm`] adapter. Used by the
-/// `neon patch` runtime path.
+/// Production CDM resolver: fetches the manifest and ensures the cache is
+/// current. Used by the `neon patch` runtime path.
 ///
 /// # Errors
 ///
 /// * `ManifestFetchFailed` if the URL chain is exhausted.
 /// * `NetworkError` / `HashMismatch` from download.
-fn production_cdm() -> Result<LocalFileCdm> {
+fn production_cdm() -> Result<CachedCdm> {
     let manifest = widevine::fetch_manifest()?;
-    let cached = widevine::cache::ensure_cdm_for(&manifest)?;
-    Ok(LocalFileCdm::from_cached(&cached))
+    widevine::cache::ensure_cdm_for(&manifest)
 }
 
 /// Render a list of reports as a friendly per-line summary.
@@ -306,7 +300,7 @@ mod tests {
         }
     }
 
-    fn make_cdm(root: &Path, version: &str) -> LocalFileCdm {
+    fn make_cdm(root: &Path, version: &str) -> CachedCdm {
         let dir = root.join(version);
         fs::create_dir_all(dir.join("_platform_specific/linux_x64")).unwrap();
         fs::write(
@@ -315,7 +309,7 @@ mod tests {
         )
         .unwrap();
         fs::write(dir.join("manifest.json"), br#"{"version":"x"}"#).unwrap();
-        LocalFileCdm::new(version.to_string(), dir)
+        CachedCdm::new(version.to_string(), dir)
     }
 
     #[test]

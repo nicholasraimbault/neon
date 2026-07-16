@@ -7,15 +7,14 @@ Thanks for your interest. Neon is a small, focused project — a DRM helper for 
 ### Prerequisites
 
 - **Rust 1.85+** (current MSRV; pinned in [`rust-toolchain.toml`](rust-toolchain.toml)). Install via [rustup.rs](https://rustup.rs/).
-- **macOS** (x86_64 or aarch64) or **Linux** (x86_64). Other platforms compile with restrictions; see [ROADMAP.md](ROADMAP.md) for V2 / V3 platform plans.
-- **On Linux:** `libgtk-3-dev` and `libayatana-appindicator3-dev` for the tray icon. (`apt install libgtk-3-dev libayatana-appindicator3-dev` on Debian/Ubuntu, `pacman -S gtk3 libayatana-appindicator` on Arch.)
+- **macOS** (x86_64 or aarch64) or **Linux** (x86_64). Other platforms compile with restrictions; see [ROADMAP.md](ROADMAP.md) for supported-platform plans.
 
 ### Clone + build
 
 ```sh
 git clone https://github.com/nicholasraimbault/neon.git
 cd neon
-git switch v2-rust-rewrite
+git switch master
 cargo build
 ```
 
@@ -118,7 +117,7 @@ Neon uses [Conventional Commits](https://www.conventionalcommits.org/) for the a
 ```
 feat(cli): neon doctor --share produces pre-filled GitHub issue URL
 fix(patch): restore snapshot atomically when codesign step fails
-docs(roadmap): document V3 localhost-bridge stretch goal
+docs(roadmap): document a future platform goal
 test(widevine): boost manifest-parser fixture coverage
 chore(deps): bump tray-icon to 0.24
 ci: fold cargo-deny advisories check back into the deny job
@@ -182,53 +181,12 @@ The codebase is split into module-level slices of `src/`:
 
 Module interfaces are kept stable across changes; rustdoc on the public types is the contract.
 
-## Experimental features
+## Experimental work
 
-Neon ships some features behind Cargo feature flags so they don't bloat the default binary or expose half-finished surface. The current experimental flag is `experimental-bridge`, scaffolding for the V3 localhost-bridge feature — see [ROADMAP.md](ROADMAP.md) for the V3 section and [`docs/v3/`](docs/v3/) for user-facing docs (hardware compat matrix, troubleshooting, license FAQ).
-
-### Activating an experimental feature
-
-```sh
-cargo install neon --features experimental-bridge
-```
-
-Or, building from source:
-
-```sh
-cargo build --features experimental-bridge
-cargo test --features experimental-bridge --lib --jobs 2
-```
-
-### What `experimental-bridge` enables
-
-- The `neon stream <subcommand>` group becomes visible in `neon --help` (`init`, `status`, `start`, `stop`, `repair`, `uninstall`, `license`).
-- The `neon::bridge` module is compiled into the library crate, including the unattended-XML generator, libvirt domain XML renderer, ISO download manager, license posture management, and a mock-mode libvirt orchestrator.
-- V3-Phase C's `neon stream init` and `neon stream status` are wired and run end-to-end under NOOP test environment variables (no real VM, no real ISO download). The remaining `start`/`stop`/`repair`/`uninstall`/`license` subcommands return "queued for V3-Phase D / F" stub errors.
-
-Default builds (no flag) compile **none** of the V3 code; the binary is byte-equivalent to V1.0's stable surface.
-
-### `experimental-bridge-libvirt` (Linux only, additive)
-
-To actually orchestrate a libvirt VM (rather than the mock path), enable this additional flag:
-
-```sh
-cargo install neon --features experimental-bridge,experimental-bridge-libvirt
-```
-
-This pulls in the [`virt`](https://crates.io/crates/virt) crate (libvirt-rs bindings), which dynamically links against `libvirt0`. Hosts must have `libvirt-dev` (Debian/Ubuntu) or `libvirt` (Arch) installed before building. Without `experimental-bridge-libvirt`, `neon stream init` will return a clear error pointing the user at the flag.
-
-### Adding a new experimental feature
-
-When you propose a new experimental feature, add a Cargo feature in this shape:
-
-```toml
-[features]
-default = []
-experimental = []
-experimental-<name> = ["experimental"]
-```
-
-The `experimental` umbrella exists so future flags can require it (e.g. for shared scaffolding). Document the new flag in this section so users know what they're opting into.
+The release branch accepts changes for the focused Widevine L3 helper. The former
+premium-streaming experiment is preserved separately on the protected
+`experimental-bridge` branch; contributors continuing that research should base
+their work there rather than adding its dependencies or CLI surface back to master.
 
 ## Code of Conduct
 

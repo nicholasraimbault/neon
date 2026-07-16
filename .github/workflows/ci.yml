@@ -48,9 +48,9 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # macOS test job is advisory: V3 experimental-bridge + daemon::ipc
-    # tests are tightly coupled to Linux env semantics (XDG_CONFIG_HOME,
-    # libvirt sockets, /proc paths, etc.). Project is Linux-primary;
+    # macOS test job is advisory because daemon and IPC tests are tightly
+    # coupled to Linux environment semantics (XDG_CONFIG_HOME, /proc paths,
+    # etc.). Project is Linux-primary;
     # macOS support is best-effort and welcomes contributors. The build
     # and clippy macOS jobs stay strict so we don't ship code that
     # can't compile on macOS.
@@ -65,25 +65,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.os }}
-      - name: Install Linux daemon dev deps
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          # libvirt-dev: required by the `virt` crate (V3 experimental-bridge)
-          # so `--all-features` builds + tests can link `libvirt0`. libgtk-3-dev
-          # and libayatana-appindicator3-dev are legacy from the pre-ksni tray
-          # era; harmless to keep but no longer required by default builds.
-          sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev libvirt-dev pkg-config
       - run: cargo test --all-features --no-fail-fast
-
-  audit:
-    name: cargo-audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
   deny:
     name: cargo-deny
@@ -92,10 +74,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          command: check bans licenses sources
-          # NOTE: 'advisories' is run via cargo-audit job above. cargo-deny
-          # versions <0.17 fail to parse some CVSS-4.0 advisories; once the
-          # action ships a newer cargo-deny by default, fold 'advisories' here.
+          # deny.toml restricts the graph to the Linux/macOS release targets,
+          # so Windows-only transitive dependencies do not create false
+          # advisory failures.
+          command: check advisories bans licenses sources
 
   build-release:
     name: cargo build --release (${{ matrix.os }})
@@ -110,15 +92,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.os }}
-      - name: Install Linux daemon dev deps
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          # libvirt-dev: required by the `virt` crate (V3 experimental-bridge)
-          # so `--all-features` builds + tests can link `libvirt0`. libgtk-3-dev
-          # and libayatana-appindicator3-dev are legacy from the pre-ksni tray
-          # era; harmless to keep but no longer required by default builds.
-          sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev libvirt-dev pkg-config
       - run: cargo build --release --verbose
 
   coverage:
@@ -132,10 +105,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: tarpaulin
-      - name: Install Linux daemon dev deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev pkg-config
       - name: Install cargo-tarpaulin
         uses: taiki-e/install-action@v2
         with:
@@ -162,8 +131,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: msrv
-      - name: Install Linux daemon dev deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev pkg-config
       - run: cargo build --verbose

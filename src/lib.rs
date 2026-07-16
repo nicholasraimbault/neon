@@ -12,12 +12,10 @@
 //! * [`platform`] — XDG/Apple paths, privilege escalation, atomic-rename.
 //! * [`migration`] — detect + remove legacy (V1) Neon installs.
 //!
-//! Phase 1 scope is the public API surface that Phase 2 (download + atomic
-//! patching) will consume. Phase 1 deliberately ships **no platform syscalls**
-//! and **no daemon code** — that lives in the Platform and Daemon teams'
-//! modules.
+//! The library exposes browser discovery, Widevine retrieval, atomic patching,
+//! platform integration, and daemon support used by the `neon` binary.
 //!
-//! # Public API contracts (Phase 1)
+//! # Public API contracts
 //!
 //! | Module | Function / Type | Stability |
 //! |---|---|---|
@@ -60,17 +58,5 @@ pub mod widevine;
 /// for the env-mutation locking story.
 #[cfg(any(test, debug_assertions))]
 pub mod test_support;
-
-/// V3 localhost-bridge — experimental, gated on `experimental-bridge`.
-///
-/// Default builds compile no V3 code. Activate with:
-///
-/// ```sh
-/// cargo install neon --features experimental-bridge
-/// ```
-///
-/// See [`bridge`] for the full module documentation.
-#[cfg(feature = "experimental-bridge")]
-pub mod bridge;
 
 pub use error::{Error, ErrorCategory, Result};
