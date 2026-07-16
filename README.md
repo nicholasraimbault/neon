@@ -64,9 +64,9 @@ Silvervine refuses to patch a running browser unless forced. It creates an exclu
 
 Run `silvervine --help` or `silvervine <command> --help` for all options, JSON output, shell completions, and man-page generation.
 
-## Migrating from Neon
+## Upgrading an existing installation
 
-Silvervine automatically migrates Neon V2 configuration, cache, logs, and user-daemon registration. `silvervine setup` also detects older Neon V1 Bash, Homebrew, AUR, `.deb`, and `.rpm` installations and provides package-manager-specific cleanup guidance.
+Silvervine automatically migrates configuration, cache, logs, and user-daemon registration created by earlier releases of this project. `silvervine setup` also detects legacy Bash, Homebrew, AUR, `.deb`, and `.rpm` installations and provides package-manager-specific cleanup guidance.
 
 The former Homebrew tap is retired. See [MIGRATION.md](MIGRATION.md) for paths, conflict handling, and recovery instructions.
 
