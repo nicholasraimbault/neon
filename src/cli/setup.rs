@@ -14,7 +14,6 @@ use crate::cli::init::{execute_plan, Plan};
 use crate::cli::OutputOptions;
 use crate::error::Result;
 use crate::patch::{self, PatchOptions};
-use crate::widevine::provider::LocalFileCdm;
 use crate::{browsers, migration, widevine};
 
 /// Args for `neon setup`.
@@ -67,17 +66,16 @@ pub fn run(args: &Args) -> Result<()> {
     write_args_summary(args, &mut handle).map_err(crate::error::Error::from)?;
     execute_plan(
         &plan,
-        production_cdm_provider,
+        production_cdm_resolver,
         patcher.as_ref(),
         &mut handle,
         PatchOptions::default(),
     )
 }
 
-fn production_cdm_provider() -> Result<LocalFileCdm> {
+fn production_cdm_resolver() -> Result<widevine::CachedCdm> {
     let manifest = widevine::fetch_manifest()?;
-    let cached = widevine::cache::ensure_cdm_for(&manifest)?;
-    Ok(LocalFileCdm::from_cached(&cached))
+    widevine::cache::ensure_cdm_for(&manifest)
 }
 
 fn write_args_summary(args: &Args, out: &mut dyn Write) -> std::io::Result<()> {

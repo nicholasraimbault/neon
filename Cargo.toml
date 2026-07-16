@@ -20,48 +20,6 @@ path = "src/lib.rs"
 name = "neon"
 path = "src/main.rs"
 
-# V3 scaffolding feature flags. Default builds compile no V3 code at
-# all. Activating `experimental-bridge` enables a stub `neon stream`
-# subcommand that returns a "queued for V3" error pointing users at
-# ROADMAP.md. The real V3 implementation (QEMU/KVM + Win11 IoT LTSC +
-# Looking Glass + GPU/TPM passthrough) lands after V2.0 stabilizes.
-#
-# Install with:
-#     cargo install neon --features experimental-bridge
-[features]
-default = []
-# Umbrella for all experimental features. Future flags may require this.
-experimental = []
-# V3 stretch: localhost-bridge for premium 4K HDR streaming.
-# Activates the `bridge` module and `neon stream` subcommand.
-#
-# Pulls in optional deps required by V3-Phase C (Windows guest
-# provisioning): `quick-xml` for unattended-XML parsing and
-# `indicatif` for progress UX. Builds and runs end-to-end under
-# the NEON_TEST_VIRT_NOOP=1 mock path without libvirt installed;
-# real-libvirt linkage requires the `experimental-bridge-libvirt`
-# feature (additive — both must be enabled together for actual VM
-# orchestration on a host with libvirt0 installed).
-#
-# Cargo install paths:
-#   cargo install neon --features experimental-bridge
-#       → builds the bridge module + tests + mock paths
-#   cargo install neon --features experimental-bridge,experimental-bridge-libvirt
-#       → adds real libvirt0 linkage; must have libvirt0 / libvirt-dev
-#         installed on the host
-experimental-bridge = [
-    "experimental",
-    "dep:quick-xml",
-    "dep:indicatif",
-]
-# Real libvirt0 linkage. Additive over `experimental-bridge`. Without
-# this flag, the bridge module's libvirt-rs path returns an explicit
-# error pointing the user at this feature.
-experimental-bridge-libvirt = [
-    "experimental-bridge",
-    "dep:virt",
-]
-
 [dependencies]
 clap = { version = "4.5", features = ["derive", "env"] }
 # Error handling — categorized errors per spec.
@@ -144,24 +102,11 @@ urlencoding = "2"
 # Tracing subscriber's rolling-file appender — used by `crate::log` to
 # rotate the daemon's `~/.cache/neon/logs/neon.log`.
 tracing-appender = "0.2"
-# Sandboxed temporary directories. Used by `patch::patch_browser` to
-# materialize CDM payloads from a `CdmProvider` into a staging directory
-# before handing to the platform write step. Same crate previously was
-# only a dev-dependency; promoting to a runtime dep for the V3 trait
-# scaffolding.
-tempfile = "3"
 # PNG decoder for the embedded tray icon. Used only by the Linux ksni
 # tray backend to convert `linux-app/neon.png` into the ARGB32 pixel
 # buffer ksni::Icon expects. ~70KB compile cost; smaller and more
 # focused than the full `image` crate, which we don't otherwise need.
 png = "0.18"
-
-# V3-Phase C deps — gated on the `experimental-bridge` Cargo feature so
-# the default V2 build doesn't pull them in. `quick-xml` parses the
-# generated `autounattend.xml` for schema validation; `indicatif`
-# powers the install progress bars in `cli::stream::init`.
-quick-xml = { version = "0.41", optional = true }
-indicatif = { version = "0.18", optional = true }
 
 # macOS-specific deps: ObjC FFI for NSWorkspace wake notifications.
 # `block2` is required because NSNotificationCenter takes a block-typed
@@ -214,16 +159,6 @@ tray-icon = { version = "0.24", default-features = false }
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "5" }
 ksni = { version = "0.3", default-features = false, features = ["blocking", "async-io"] }
-# libvirt-rs (`virt`) for V3-Phase C bridge VM orchestration. Optional
-# so default builds don't pull it in; activated transitively when the
-# user opts into `experimental-bridge` AND is on Linux. This dep is
-# absent on macOS entirely (libvirt isn't available there); the
-# `cli::stream::init` flow returns an UnsupportedPlatform error on
-# macOS. Linux hosts without `libvirt0` will fail at runtime; install
-# via your distro: `apt install libvirt0` (Debian/Ubuntu),
-# `pacman -S libvirt` (Arch).
-virt = { version = "0.4", optional = true }
-
 [dev-dependencies]
 # Sandboxed temporary directories for filesystem-shaped tests.
 tempfile = "3"

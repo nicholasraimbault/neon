@@ -49,7 +49,7 @@ use crate::browsers::{discovery, Browser};
 use crate::error::{Error, Result};
 use crate::lockfile;
 use crate::platform;
-use crate::widevine::provider::CdmProvider;
+use crate::widevine::cache::CachedCdm;
 
 pub mod backup;
 
@@ -227,16 +227,9 @@ pub trait PlatformPatcher {
     fn read_browser_version(&self, target: &Path) -> Option<String>;
 }
 
-/// Patch a single browser with the given CDM source.
+/// Patch a single browser with the given cached CDM.
 ///
 /// This is the public API CLI and daemon both call.
-///
-/// V3-Phase A scaffolding: `cdm` is now a `&dyn CdmProvider` instead of
-/// `&CachedCdm`. V2 always passes a [`crate::widevine::provider::LocalFileCdm`]
-/// (constructed from the existing [`crate::widevine::cache`] APIs);
-/// V3's `experimental-bridge` feature will introduce a `BridgeCdm` impl
-/// that talks to a Windows guest VM. The orchestrator stays identical
-/// regardless of the source.
 ///
 /// # Flow
 ///
@@ -244,15 +237,13 @@ pub trait PlatformPatcher {
 /// 2. If browser is running and `force_while_running` is false, error out
 ///    with [`crate::ErrorCategory::BrowserRunning`].
 /// 3. Snapshot the install path to `~/.cache/neon/backups/<browser>-<ver>-<ts>/`.
-/// 4. Materialize the CDM payload (via `cdm.populate(&staging_dir)`)
-///    into a temporary staging directory.
-/// 5. Call [`PlatformPatcher::write_cdm`] with the staging dir as
-///    source → on error, restore snapshot.
-/// 6. Call [`PlatformPatcher::verify_post_patch`] → on error, restore snapshot.
-/// 7. Commit (delete the snapshot).
-/// 8. Return [`PatchOutcome`].
+/// 4. Call [`PlatformPatcher::write_cdm`] with the cached CDM directory as
+///    source → on error, restore snapshot if the install was modified.
+/// 5. Call [`PlatformPatcher::verify_post_patch`] → on error, restore snapshot.
+/// 6. Commit (delete the snapshot).
+/// 7. Return [`PatchOutcome`].
 ///
-/// On `dry_run = true`, steps 3-7 are skipped; the function returns an
+/// On `dry_run = true`, steps 3-6 are skipped; the function returns an
 /// outcome with `dry_run = true` and the versions that *would have* been
 /// written.
 ///
@@ -260,14 +251,13 @@ pub trait PlatformPatcher {
 ///
 /// * [`crate::ErrorCategory::BrowserRunning`] — browser is running and
 ///   `force_while_running` is false.
-/// * Anything from [`crate::widevine::provider::CdmProvider::populate`],
-///   [`PlatformPatcher::write_cdm`], or
+/// * Anything from [`PlatformPatcher::write_cdm`] or
 ///   [`PlatformPatcher::verify_post_patch`] — the snapshot is restored
-///   before the error is returned.
+///   if the install was modified before the error is returned.
 /// * [`crate::ErrorCategory::Other`] — lockfile or backup machinery failed.
 pub fn patch_browser(
     browser: &Browser,
-    cdm: &dyn CdmProvider,
+    cdm: &CachedCdm,
     patcher: &dyn PlatformPatcher,
     options: &PatchOptions,
 ) -> Result<PatchOutcome> {
@@ -308,7 +298,7 @@ pub fn decide_escalate(as_root: bool, running_as_root: bool, target_writable: bo
 /// Inner patch flow, run while the lockfile is held.
 fn run_patch(
     browser: &Browser,
-    cdm: &dyn CdmProvider,
+    cdm: &CachedCdm,
     patcher: &dyn PlatformPatcher,
     options: &PatchOptions,
 ) -> Result<PatchOutcome> {
@@ -463,7 +453,7 @@ pub fn target_writable(path: &Path) -> bool {
 /// exercise the branch without invoking real elevation.
 fn run_patch_via_escalation(
     browser: &Browser,
-    cdm: &dyn CdmProvider,
+    cdm: &CachedCdm,
     _patcher: &dyn PlatformPatcher,
     options: &PatchOptions,
     started: Instant,
@@ -548,46 +538,18 @@ enum PatchAttempt {
     ModifiedOriginal(Error),
 }
 
-/// Run the platform impl + verification, between snapshot and commit.
-///
-/// Materializes the CDM payload into a `tempfile::TempDir` so the
-/// platform impl receives a stable directory path. The temp dir lives
-/// only for the duration of `write_cdm` + `verify_post_patch`; on
-/// success it's dropped (and the directory is removed) before the
-/// orchestrator commits the snapshot.
+/// Run the platform impl + verification between snapshot and commit.
 ///
 /// Returns a typed [`PatchAttempt`] so the caller can decide whether to
-/// roll back. Anything that errors before [`PlatformPatcher::write_cdm`]
-/// is reported as [`PatchAttempt::FailedBeforeModification`]; anything
-/// from `write_cdm` itself onward is reported as
-/// [`PatchAttempt::ModifiedOriginal`].
+/// roll back. A `write_cdm` failure is classified according to whether the
+/// platform implementation modified the install before failing; verification
+/// failures always require rollback.
 fn perform_patch(
     browser: &Browser,
-    cdm: &dyn CdmProvider,
+    cdm: &CachedCdm,
     patcher: &dyn PlatformPatcher,
 ) -> PatchAttempt {
-    // Stage 1: build the staging dir + populate it from the CDM provider.
-    // Failures here can't have touched the install path yet — neither
-    // the staging dir nor `cdm.populate` knows where the install lives.
-    let staging = match tempfile::Builder::new()
-        .prefix("neon-cdm-staging-")
-        .tempdir()
-        .map_err(Error::from)
-    {
-        Ok(s) => s,
-        Err(e) => return PatchAttempt::FailedBeforeModification(e),
-    };
-    if let Err(e) = cdm.populate(staging.path()) {
-        return PatchAttempt::FailedBeforeModification(e);
-    }
-
-    // Stage 2: hand the staging dir to the platform write. Once
-    // `write_cdm` returns we can no longer assume the install path is
-    // pristine — even an early error inside the impl might have left
-    // partial state behind (e.g. it removed an existing `WidevineCdm/`
-    // before failing on `create_dir_all`). Conservatively treat every
-    // error from `write_cdm` onward as `ModifiedOriginal`.
-    if let Err(e) = patcher.write_cdm(browser.install_path(), staging.path()) {
+    if let Err(e) = patcher.write_cdm(browser.install_path(), cdm.cdm_dir()) {
         return classify_write_error(e, browser.install_path());
     }
     if let Err(e) = patcher.verify_post_patch(browser.install_path()) {
@@ -637,16 +599,15 @@ mod tests {
 
     use super::*;
     use crate::browsers::BrowserKind;
-    use crate::widevine::provider::LocalFileCdm;
 
-    /// Build a minimum [`LocalFileCdm`] on disk for tests.
-    fn make_cached_cdm(root: &Path, version: &str) -> LocalFileCdm {
+    /// Build a minimum [`CachedCdm`] on disk for tests.
+    fn make_cached_cdm(root: &Path, version: &str) -> CachedCdm {
         let dir = root.join(version);
         let cdm = dir.join("_platform_specific").join("linux_x64");
         fs::create_dir_all(&cdm).expect("mkdir cdm");
         fs::write(cdm.join("libwidevinecdm.so"), b"fake-so").expect("write so");
         fs::write(dir.join("manifest.json"), br#"{"version":"4.10.0.0"}"#).expect("write manifest");
-        LocalFileCdm::new(version.to_string(), dir)
+        CachedCdm::new(version.to_string(), dir)
     }
 
     /// Recording mock implementation of [`PlatformPatcher`].
@@ -1109,30 +1070,6 @@ mod tests {
         let _ = handle.commit();
     }
 
-    /// `perform_patch` reports `FailedBeforeModification` when `cdm.populate`
-    /// fails. We fake this with a `LocalFileCdm` pointing at a missing
-    /// source dir.
-    #[test]
-    fn perform_patch_returns_failed_before_modification_when_cdm_populate_errors() {
-        let tmp = TempDir::new().expect("tempdir");
-        let install = tmp.path().join("install");
-        fs::create_dir_all(&install).expect("mkdir install");
-        fs::write(install.join("original.txt"), b"keep me").expect("seed");
-        let browser = make_browser(install.clone());
-        // CDM pointing at a missing dir — populate() will error.
-        let cdm = LocalFileCdm::new("1.0".into(), tmp.path().join("missing-cdm-source"));
-        let patcher = MockPatcher::with_version("v1");
-        let outcome = perform_patch(&browser, &cdm, &patcher);
-        assert!(matches!(outcome, PatchAttempt::FailedBeforeModification(_)));
-        // No write was attempted.
-        assert_eq!(patcher.write_calls.load(Ordering::SeqCst), 0);
-        // Original is intact.
-        assert_eq!(
-            fs::read(install.join("original.txt")).expect("read"),
-            b"keep me"
-        );
-    }
-
     /// `perform_patch` reports `FailedBeforeModification` when `write_cdm`
     /// returns an `UnknownBundleStructure` error (the impl bailed out
     /// before touching anything — common when install path is missing).
@@ -1256,46 +1193,5 @@ mod tests {
         assert_eq!(patcher.write_calls.load(Ordering::SeqCst), 1);
         assert_eq!(patcher.verify_calls.load(Ordering::SeqCst), 1);
         assert!(!outcome.dry_run);
-    }
-
-    /// `perform_patch` does NOT call `restore` when the CDM populate
-    /// fails (regression for the bug where any error triggered restore,
-    /// even pre-modification ones).
-    #[test]
-    fn run_patch_does_not_restore_when_cdm_populate_fails() {
-        let tmp = TempDir::new().expect("tempdir");
-        let install = tmp.path().join("install");
-        fs::create_dir_all(&install).expect("mkdir install");
-        fs::write(install.join("original.txt"), b"keep me").expect("seed");
-        let browser = make_browser(install.clone());
-        // CDM pointing at a missing dir so populate fails.
-        let cdm = LocalFileCdm::new("1.0".into(), tmp.path().join("missing-cdm-source"));
-        let patcher = MockPatcher::with_version("v1");
-        let opts = PatchOptions {
-            force_while_running: true,
-            dry_run: false,
-            lock_path: Some(tmp.path().join("patch.lock")),
-            backups_dir: Some(tmp.path().join("backups")),
-            as_root: false,
-        };
-        let err = patch_browser(&browser, &cdm, &patcher, &opts).expect_err("populate fail");
-        // The original is still on disk.
-        assert_eq!(
-            fs::read(install.join("original.txt")).expect("read"),
-            b"keep me"
-        );
-        // No restore was attempted (the snapshot's `commit` deleted the
-        // backup; if `restore` had run, we'd see different filesystem
-        // state). We can't directly observe restore-vs-commit from here,
-        // but the absence of the snapshot in `backups_dir` means commit
-        // ran, not restore.
-        let backups_dir = tmp.path().join("backups");
-        if backups_dir.exists() {
-            let entries: Vec<_> = fs::read_dir(&backups_dir).expect("read_dir").collect();
-            assert!(
-                entries.is_empty(),
-                "snapshot was not cleaned up (commit didn't run); err={err}"
-            );
-        }
     }
 }

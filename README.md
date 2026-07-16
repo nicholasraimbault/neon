@@ -59,8 +59,6 @@ Patched Widevine is **software-only L3**. Streaming services cap L3 playback at 
 
 Hardware-DRM L1 requires a Widevine binary signed by your device's TPM/Secure Enclave + browser binary signed by the browser vendor + CDN-side allow-listing. None of that exists for de-Googled Chromium forks. If you need 4K HDR, you need a device blessed by the studios — Apple TV, smart TV, official Edge/Safari/Chrome.
 
-There's an experimental escape hatch — `neon stream` — that runs a Win11 IoT VM with GPU + TPM passthrough and streams its desktop back via Looking Glass. **It requires dual-GPU hardware** (single-GPU laptops can't use it; the host has no GPU left while the VM runs). And it gives you 4K *with tone-mapped HDR*, not true HDR end-to-end (Wayland HDR + Looking Glass HDR confluence is ~2026). Behind the `experimental-bridge` Cargo feature flag, off by default. See the V3 section in [ROADMAP.md](ROADMAP.md) for the honest hardware-and-quality matrix before you opt in.
-
 ## Features
 
 - **One binary, two modes.** The same `neon` executable is both the CLI and the long-running tray daemon. No daemon-spawn race conditions, no second-source-of-truth bugs.
@@ -129,7 +127,7 @@ Neon is maintained by one person. **Arch (and Arch-like distros) get first-class
 ## Documentation
 
 - [MIGRATION.md](MIGRATION.md) — upgrading from V1 (bash, Homebrew, DMG, AUR, .deb / .rpm)
-- [ROADMAP.md](ROADMAP.md) — V2.1 / V3 / future plans, maintenance posture
+- [ROADMAP.md](ROADMAP.md) — V2.1 and future L3-helper plans, maintenance posture
 - [CONTRIBUTING.md](CONTRIBUTING.md) — dev setup, conventional commits, PR conventions
 - [SECURITY.md](SECURITY.md) — disclosure policy, supported versions
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Contributor Covenant 2.1

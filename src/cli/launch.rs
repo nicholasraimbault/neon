@@ -142,8 +142,7 @@ pub fn run(args: &Args) -> Result<()> {
         )
         .map_err(Error::from)?;
         let manifest = crate::widevine::fetch_manifest()?;
-        let cached = crate::widevine::cache::ensure_cdm_for(&manifest)?;
-        let cdm = crate::widevine::provider::LocalFileCdm::from_cached(&cached);
+        let cdm = crate::widevine::cache::ensure_cdm_for(&manifest)?;
         let patcher = crate::patch::host_patcher()?;
         let _ = crate::patch::patch_browser(
             &browser,

@@ -8,7 +8,7 @@
 | V1.x (bash + Swift + Go) | No (V1 is end-of-life as of V2.0 ship) |
 | V2.0 pre-releases (`v2.0.0-rc.*`) | Yes during the rc; superseded by `v2.0.0` |
 
-V2.1 supersedes V2.0 once shipped — I don't commit to maintaining multiple LTS branches.
+V2.1 supersedes V2.0 once shipped — I don't commit to maintaining multiple LTS branches. Supported release versions cover the focused Widevine L3 helper shipped from master.
 
 ## Reporting a vulnerability
 

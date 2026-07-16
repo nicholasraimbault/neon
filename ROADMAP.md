@@ -57,35 +57,12 @@ First six months post-V2.0. Driven by what surfaces during the rc and early prod
 
 - **Inside-out codesigning.** Apple deprecated `codesign --deep` in macOS 13. V2 still uses it (same as V1). V2.1 migrates to inside-out: sign the framework's `.dylib` first, then the framework, then the bundle. `[needs macOS contributor]`
 
-## V3 — `neon stream` localhost-bridge (experimental, opt-in)
+## Experimental work
 
-**Status:** scaffolding complete on Linux x86_64 with dual-GPU. **Not yet validated on real hardware end-to-end** — promoted off `experimental-bridge` only after a hardware-acceptance pass on at least one Intel iGPU + NVIDIA dGPU configuration. Ships behind the `experimental-bridge` Cargo feature flag — default `cargo install neon` builds zero V3 code. Opt-in:
-
-```sh
-cargo install neon --features experimental-bridge,experimental-bridge-libvirt
-```
-
-The point of V3: Chromium-fork DRM tops out at L3 (~720p). V3 takes the hardware path — provisions a Win11 IoT LTSC VM with GPU + TPM passthrough, streams the guest desktop back via Looking Glass. Real signed Widevine in the guest's Edge means 4K playback the host browser can't reach.
-
-### Hardware that works
-
-- **Desktop / laptop with iGPU + dGPU** (Intel UHD + NVIDIA RTX 2070+ recommended; AMD Hybrid / NVIDIA Optimus laptops likewise).
-
-### Hardware that doesn't
-
-- **Single-GPU host** — Linux desktop has no GPU left while the VM runs. No mitigation until Looking Glass IDD-host ships upstream (paused; no timeline).
-- **AMD GPUs** — less verified than NVIDIA; PlayReady SL3000 attestation may or may not engage. `[needs AMD verifier]`
-- **Apple Silicon Mac** — V3 is Linux-only; macOS gets a capability-detect stub that points users at Parallels/UTM.
-
-### Quality ceiling
-
-- **4K resolution: yes** (on configurations above).
-- **True HDR end-to-end: no** — Looking Glass tone-maps to SDR until the Wayland HDR + LG HDR confluence (~2026 estimated).
-- **Dolby Vision: no** — needs licensed components Linux doesn't have.
-
-The `neon stream init` wizard runs a hardware-capability gate that refuses to provision when the host can't actually deliver the feature. The subcommand surface (`init` / `start` / `stop` / `status` / `repair` / `uninstall` / `license`) is documented in `neon stream --help`; user-facing docs (hardware compat matrix, troubleshooting, license FAQ) live at [`docs/v3/`](docs/v3/).
-
-With the feature enabled, the binary grows ~5 MB and gains runtime deps on QEMU + KVM. Without it, the default ~10 MB build is unaffected. Win11 IoT LTSC is **BYO license** — Neon never distributes Microsoft binaries.
+The former premium-streaming experiment is not part of the release roadmap or
+release-branch build. Its code and documentation are preserved on the protected
+`experimental-bridge` branch for contributors who want to continue that research.
+The release branch remains focused on the software-only Widevine L3 helper.
 
 ## Future / unscheduled
 
@@ -117,8 +94,6 @@ This is specifically Asahi Linux + Raspberry Pi 4/5 + ARM Chromebooks running Li
 ## Watch list (no commitment, just monitoring)
 
 - **Wayland HDR maturity.** Once Helium / Thorium pick up first-class Wayland HDR, `neon configure-youtube-hdr` becomes more useful.
-- **Looking Glass IDD GA.** If/when it un-pauses upstream, V3 stops needing a dummy plug.
-- **AMD GIM consumer Radeon SR-IOV.** Would make V3 single-GPU on AMD.
 - **HDCP 2.3 maturity.** Could open more Linux GPU drivers to the L1 path.
 - **Apple removing `codesign --deep` entirely.** Forcing function for the V2.1 inside-out signing work.
 

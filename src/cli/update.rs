@@ -29,10 +29,7 @@ use std::io::Write;
 use crate::cli::OutputOptions;
 use crate::error::{Error, Result};
 use crate::patch::{self, PatchOptions};
-use crate::widevine::{
-    self,
-    provider::{CdmProvider, LocalFileCdm},
-};
+use crate::widevine;
 
 /// Args for `neon update widevine`.
 #[derive(Debug, Clone, Default)]
@@ -68,10 +65,6 @@ pub struct WidevineUpdateOutcome {
 /// `cdm_source` is `None` for the default Mozilla chain, or `Some(url)`
 /// for a single-URL override (as used with `--cdm-source`).
 ///
-/// `repatch_provider` is a closure that patches a single browser; tests
-/// inject a no-op closure so they don't have to drive the real
-/// `patch_browser` flow.
-///
 /// # Errors
 ///
 /// * Any error from `fetch_manifest` / `ensure_cdm_for`.
@@ -106,9 +99,8 @@ fn run_widevine_install(args: &WidevineArgs, out: &mut dyn Write) -> Result<Wide
         Some(url) => fetch_from_custom(url)?,
         None => widevine::fetch_manifest()?,
     };
-    let cached = widevine::cache::ensure_cdm_for(&manifest)?;
-    writeln!(out, "Cached CDM version: {}", cached.version()).map_err(Error::from)?;
-    let cdm = LocalFileCdm::from_cached(&cached);
+    let cdm = widevine::cache::ensure_cdm_for(&manifest)?;
+    writeln!(out, "Cached CDM version: {}", cdm.version()).map_err(Error::from)?;
 
     // Re-patch every detected browser at the new version.
     let detected = crate::browsers::detect_browsers().unwrap_or_default();
