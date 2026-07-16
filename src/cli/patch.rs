@@ -307,9 +307,8 @@ pub fn run_privileged(args: &PrivilegedArgs) -> Result<()> {
             args.cdm_dir.display()
         )));
     }
-    patch::validate_privileged_snapshot_parent(&args.install_path, &args.backup_parent)?;
     #[cfg(target_os = "macos")]
-    {
+    let pinned_layout = {
         let framework = args.framework_name.as_deref().ok_or_else(|| {
             Error::unknown_bundle_structure(
                 "privileged macOS patch requires an exact parent-selected framework",
@@ -320,8 +319,15 @@ pub fn run_privileged(args: &PrivilegedArgs) -> Result<()> {
                 "privileged macOS patch requires an exact parent-selected framework version",
             )
         })?;
-        crate::patch::macos::validate_privileged_layout(&args.install_path, framework, version)?;
-    }
+        (framework, version)
+    };
+    patch::validate_privileged_snapshot_parent(&args.install_path, &args.backup_parent)?;
+    #[cfg(target_os = "macos")]
+    crate::patch::macos::validate_privileged_layout(
+        &args.install_path,
+        pinned_layout.0,
+        pinned_layout.1,
+    )?;
     let browser = Browser {
         name: args.browser_name.clone(),
         install_path: args.install_path.clone(),

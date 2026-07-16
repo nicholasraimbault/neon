@@ -111,6 +111,10 @@ fn rollback_json_stdout_is_exactly_one_document() {
     use std::os::unix::fs::symlink;
 
     let tmp = TempDir::new().unwrap();
+    let home = tmp.path().join("home");
+    #[cfg(target_os = "macos")]
+    let cache = home.join("Library/Caches/silvervine/widevine");
+    #[cfg(not(target_os = "macos"))]
     let cache = tmp.path().join("cache/silvervine/widevine");
     std::fs::create_dir_all(cache.join("1.0")).unwrap();
     std::fs::create_dir_all(cache.join("2.0")).unwrap();
@@ -118,7 +122,7 @@ fn rollback_json_stdout_is_exactly_one_document() {
     symlink("1.0", cache.join("previous")).unwrap();
 
     let output = Command::new(env!("CARGO_BIN_EXE_silvervine"))
-        .env("HOME", tmp.path().join("home"))
+        .env("HOME", &home)
         .env("XDG_CONFIG_HOME", tmp.path().join("config"))
         .env("XDG_CACHE_HOME", tmp.path().join("cache"))
         .env("SILVERVINE_TEST_DATA_MIGRATION_NOOP", "1")

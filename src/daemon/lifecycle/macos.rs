@@ -196,7 +196,7 @@ fn register_transaction(
             ),
             Ok(false) => {}
             Err(probe_error) => {
-                failures.push(("probe attempted LaunchAgent during rollback", probe_error))
+                failures.push(("probe attempted LaunchAgent during rollback", probe_error));
             }
         }
         record_failure(

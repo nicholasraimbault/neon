@@ -184,6 +184,10 @@ pub fn resolve_privileged_layout(
 
 /// Validate a parent-pinned layout without scanning frameworks or versions.
 /// The privileged child calls this before creating a snapshot.
+///
+/// # Errors
+/// Returns `UnknownBundleStructure` when a pinned component is missing,
+/// symlinked, invalid, or escapes the selected browser bundle.
 pub fn validate_privileged_layout(target: &Path, framework: &str, version: &str) -> Result<()> {
     resolve_bundle_layout_for(target, Some(framework), Some(version)).map(|_| ())
 }
@@ -264,8 +268,13 @@ fn resolve_bundle_layout_for(
 }
 
 fn checked_directory(path: &Path, kind: &str) -> Result<()> {
-    let metadata = fs::symlink_metadata(path)
-        .map_err(|error| ctx_err(error, format!("inspect {kind} {}", path.display())))?;
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            Error::unknown_bundle_structure(format!("{kind} is missing: {}", path.display()))
+        } else {
+            ctx_err(error, format!("inspect {kind} {}", path.display()))
+        }
+    })?;
     if metadata.file_type().is_symlink() {
         return Err(Error::unknown_bundle_structure(format!(
             "{kind} must not be a symlink: {}",

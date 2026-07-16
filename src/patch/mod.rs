@@ -1296,6 +1296,11 @@ mod tests {
         let tmp = TempDir::new().expect("tempdir");
         let install = tmp.path().join("install");
         fs::create_dir_all(&install).expect("mkdir install");
+        #[cfg(target_os = "macos")]
+        fs::create_dir_all(
+            install.join("Contents/Frameworks/Test Framework.framework/Versions/1.0/Libraries"),
+        )
+        .expect("create synthetic macOS framework layout");
         // Make install read-only so target_writable returns false.
         let perms = fs::Permissions::from_mode(0o555);
         fs::set_permissions(&install, perms).expect("chmod ro");

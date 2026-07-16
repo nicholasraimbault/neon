@@ -393,6 +393,7 @@ mod tests {
             unsafe { std::env::set_var(key, value) };
             Self { key, prev }
         }
+        #[cfg(target_os = "linux")]
         fn unset(key: &'static str) -> Self {
             let prev = std::env::var_os(key);
             unsafe { std::env::remove_var(key) };
