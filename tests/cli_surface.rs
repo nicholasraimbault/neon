@@ -54,3 +54,24 @@ fn parser_rejects_experimental_doctor_bridge_option() {
         "unexpected result: {output:?}"
     );
 }
+
+#[test]
+fn update_help_excludes_unsigned_self_update() {
+    let help = run_help(&["update", "--help"]);
+    assert!(
+        !help
+            .lines()
+            .any(|line| line.trim_start().starts_with("self ")),
+        "release CLI unexpectedly exposes `update self`: {help}"
+    );
+}
+
+#[test]
+fn parser_rejects_unsigned_self_update() {
+    let output = run(&["update", "self"]);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "unexpected result: {output:?}"
+    );
+}

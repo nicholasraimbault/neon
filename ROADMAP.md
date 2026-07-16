@@ -39,7 +39,6 @@ First six months post-V2.0. Driven by what surfaces during the rc and early prod
 - **AUR package** — `neon-bin` (downloads cargo-dist artifact) + `neon-git` (builds from source). Replaces the V1 `neon-drm` PKGBUILD.
 - **`.deb` package** for Debian / Ubuntu via [`cargo-deb`](https://github.com/kornelski/cargo-deb), auto-built in the cargo-dist release pipeline. `[needs Debian/Ubuntu verifier]`
 - **`.rpm` package** via `cargo-generate-rpm`. `[needs Fedora/RHEL verifier]`
-- **`zipsign` artifact signing.** Post-build sign step in `release.yml` using a keypair stored in a GitHub secret. The `self_update` crate's `signatures` feature verifies on update; public key embedded in the binary at build time.
 
 ### Diagnostics + media-stack helpers
 

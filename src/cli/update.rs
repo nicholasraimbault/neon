@@ -1,10 +1,9 @@
-//! `neon update` — Widevine CDM update + binary self-update.
+//! `neon update widevine` — update or roll back the Widevine CDM.
 //!
 //! ## Subcommand surface
 //!
 //! ```text
 //! neon update widevine [--rollback] [--cdm-source=<url>]
-//! neon update self
 //! ```
 //!
 //! ### `neon update widevine`
@@ -15,14 +14,6 @@
 //!
 //! `--rollback` flips back to the previous cached version (no
 //! download).
-//!
-//! ### `neon update self`
-//!
-//! Uses `self_update` to fetch the latest release from GitHub. If the
-//! installed binary lives in a root-owned location, the writeback
-//! escalates via [`crate::platform::run_as_root_script`]. Signature
-//! verification (zipsign) is deferred to V1.1 — the `self_update`
-//! crate's `signatures` feature pulls in extra deps we want to defer.
 
 use std::io::Write;
 
@@ -38,13 +29,6 @@ pub struct WidevineArgs {
     pub rollback: bool,
     /// `--cdm-source <url>`: override the default Mozilla manifest chain.
     pub cdm_source: Option<String>,
-    /// Output flags.
-    pub output: OutputOptions,
-}
-
-/// Args for `neon update self`.
-#[derive(Debug, Clone, Default)]
-pub struct SelfArgs {
     /// Output flags.
     pub output: OutputOptions,
 }
@@ -142,46 +126,6 @@ fn fetch_from_custom(url: &str) -> Result<widevine::Manifest> {
     )
 }
 
-/// Run `neon update self`.
-///
-/// # Errors
-///
-/// Surfaces `self_update` errors as `Other`. Signature verification
-/// (zipsign) is deferred to V1.1.
-pub fn run_self(_args: &SelfArgs) -> Result<()> {
-    let stdout = std::io::stdout();
-    let mut handle = stdout.lock();
-    writeln!(handle, "Checking for newer Neon release…").map_err(Error::from)?;
-    let status = self_update::backends::github::Update::configure()
-        .repo_owner("nicholasraimbault")
-        .repo_name("neon")
-        .bin_name("neon")
-        .show_download_progress(true)
-        .current_version(env!("CARGO_PKG_VERSION"))
-        .build()
-        .map_err(|e| Error::other(format!("failed to build self-update: {e}")))?
-        .update();
-    match status {
-        Ok(status) if status.updated() => {
-            writeln!(handle, "Updated to version {}", status.version()).map_err(Error::from)?;
-            // Re-patch all browsers at the new binary's CDM expectations.
-            // Best-effort: failures are logged but don't fail the command.
-            let detected = crate::browsers::detect_browsers().unwrap_or_default();
-            if !detected.is_empty() {
-                writeln!(handle, "Re-patching {} browser(s)…", detected.len())
-                    .map_err(Error::from)?;
-                let _ = run_widevine(&WidevineArgs::default());
-            }
-            Ok(())
-        }
-        Ok(_status) => {
-            writeln!(handle, "Already at latest version.").map_err(Error::from)?;
-            Ok(())
-        }
-        Err(e) => Err(Error::network(format!("self-update failed: {e}"))),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,12 +171,5 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let r = widevine::cache::rollback_in(tmp.path());
         assert!(r.is_err());
-    }
-
-    #[test]
-    fn self_args_default_is_no_op_safe() {
-        let a = SelfArgs::default();
-        assert!(!a.output.json);
-        assert!(!a.output.quiet);
     }
 }

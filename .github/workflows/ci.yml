@@ -67,15 +67,6 @@ jobs:
           key: ${{ matrix.os }}
       - run: cargo test --all-features --no-fail-fast
 
-  audit:
-    name: cargo-audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
   deny:
     name: cargo-deny
     runs-on: ubuntu-latest
@@ -83,10 +74,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          command: check bans licenses sources
-          # NOTE: 'advisories' is run via cargo-audit job above. cargo-deny
-          # versions <0.17 fail to parse some CVSS-4.0 advisories; once the
-          # action ships a newer cargo-deny by default, fold 'advisories' here.
+          # deny.toml restricts the graph to the Linux/macOS release targets,
+          # so Windows-only transitive dependencies do not create false
+          # advisory failures.
+          command: check advisories bans licenses sources
 
   build-release:
     name: cargo build --release (${{ matrix.os }})

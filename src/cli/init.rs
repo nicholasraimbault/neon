@@ -229,7 +229,7 @@ where
         if let Some(cdm) = &cdm {
             // Idempotency: if the browser is already patched at the
             // cached CDM version, skip cleanly. This matters for
-            // re-runs of `neon setup` after a self-update — the user
+            // re-runs of `neon setup` after upgrading Neon — the user
             // may have the browser open, and a forced re-patch would
             // fail with `BrowserRunning` even though the system is
             // already in the desired state.

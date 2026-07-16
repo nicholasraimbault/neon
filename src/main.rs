@@ -117,7 +117,7 @@ enum Command {
         url: Option<String>,
     },
 
-    /// Update the Widevine CDM or self-update the Neon binary.
+    /// Update or roll back the Widevine CDM.
     Update {
         #[command(subcommand)]
         target: UpdateTarget,
@@ -162,10 +162,6 @@ enum UpdateTarget {
         #[arg(long)]
         cdm_source: Option<String>,
     },
-
-    /// Self-update the Neon binary from GitHub Releases.
-    #[command(name = "self")]
-    SelfUpdate,
 }
 
 fn main() -> ExitCode {
@@ -234,7 +230,6 @@ fn dispatch(cmd: Command, output: cli::OutputOptions, as_root: bool) -> neon::Re
                 cdm_source,
                 output,
             }),
-            UpdateTarget::SelfUpdate => cli::update::run_self(&cli::update::SelfArgs { output }),
         },
         Command::Repair => cli::repair::run(&cli::repair::Args { output }),
         Command::Launch { browser } => cli::launch::run(&cli::launch::Args { browser, output }),

@@ -15,7 +15,7 @@ curl --proto '=https' --tlsv1.2 -LsSf \
 neon setup
 ```
 
-Once v2.0.0 stable lands, this snippet swaps the pinned tag for `…/releases/latest/download/neon-installer.sh` and self-updates with each release.
+Once v2.0.0 stable lands, this snippet swaps the pinned tag for `…/releases/latest/download/neon-installer.sh` so new installs track the latest release.
 
 The installer drops a single statically-linked binary into `$CARGO_HOME/bin` (typically `~/.cargo/bin`); `neon setup` then detects your browsers, downloads the Widevine CDM from Mozilla's GMP manifest, patches each browser, and registers a user-session daemon (LaunchAgent on macOS, systemd-user unit on Linux) that re-patches automatically on browser self-updates.
 
@@ -83,7 +83,6 @@ Hardware-DRM L1 requires a Widevine binary signed by your device's TPM/Secure En
 | `neon doctor [--json] [--share] [<error-code>]` | Diagnostics + EME error code translation |
 | `neon test` | EME health-check against Shaka Player demo |
 | `neon update widevine [--rollback] [--cdm-source <url>]` | Update the Widevine CDM |
-| `neon update self [--rollback]` | Self-update Neon |
 | `neon repair` | uninstall + setup composition |
 | `neon launch <browser>` | Verify-then-launch wrapper (re-patches if needed) |
 | `neon uninstall` | Remove daemon + cache (preserves browser bundles) |

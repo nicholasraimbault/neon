@@ -46,8 +46,6 @@ updates:
     #   objc2 migration.
     # - sysinfo: 0.39 declares an MSRV (~1.86) above our Cargo.toml's
     #   `rust-version = 1.85`. Bump alongside an MSRV bump.
-    # - self_update: 0.42+ failed to compile (`http_client::get`
-    #   missing in 0.44). Pinned at 0.41 until upstream is sane.
     # - png: 0.18 changed Decoder to require Read+Seek; we already
     #   adapted `src/daemon/tray.rs`. Left unpinned but listed here
     #   so future major bumps get extra eyes.
@@ -58,7 +56,6 @@ updates:
       - dependency-name: "objc2-app-kit"
       - dependency-name: "tray-icon"
       - dependency-name: "sysinfo"
-      - dependency-name: "self_update"
 
   # GitHub Actions (workflow YAML pinning).
   - package-ecosystem: "github-actions"
