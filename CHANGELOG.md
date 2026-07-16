@@ -10,6 +10,17 @@ Once V1.0 ships, future entries will be auto-generated from
 
 ## [Unreleased]
 
+### Removed
+
+- Removed the unsupported experimental VM/GPU bridge, including the
+  `neon stream` command tree, `neon doctor --bridge`, libvirt dependencies,
+  and bridge-specific daemon/tray integration. The research implementation is
+  preserved on the `experimental-bridge` branch for contributors.
+- Removed the bridge-only CDM provider abstraction and its redundant temporary
+  copy of the cached Widevine payload during every browser patch.
+- Removed the unsigned `neon update self` mechanism. Install updates through a
+  supported package manager or GitHub Releases instead.
+
 ## [2.0.0-rc.2] - 2026-05-17
 
 A polish release: every change addresses a bug or UX failure surfaced
@@ -78,6 +89,9 @@ rc.1 has a hard deadlock on the patch path.
 ## [2.0.0-rc.1] - 2026-05-13
 
 ### Added
+
+> **Historical note:** The experimental bridge described below was later removed
+> from the release branch and preserved on the `experimental-bridge` branch.
 
 - **V3 localhost-bridge (experimental, behind `experimental-bridge`
   Cargo feature)**: `neon stream` subcommand tree that provisions a

@@ -16,7 +16,7 @@
 //! The wizard is split into a [`Plan`] (the data) and an
 //! [`execute_plan`] (the side effects). Tests build a [`Plan`] from
 //! synthetic input, then call [`execute_plan`] with mocked patcher /
-//! CDM provider closures. The interactive prompts themselves are
+//! CDM resolver closures. The interactive prompts themselves are
 //! exercised through [`build_plan_from_input`], which takes a
 //! [`PromptInput`] trait so tests can supply canned answers.
 
@@ -27,10 +27,7 @@ use crate::cli::OutputOptions;
 use crate::error::{Error, Result};
 use crate::migration;
 use crate::patch::{self, PatchOptions, PlatformPatcher};
-use crate::widevine::{
-    self,
-    provider::{CdmProvider, LocalFileCdm},
-};
+use crate::widevine::{self, CachedCdm};
 
 /// Args for `neon init`.
 #[derive(Debug, Clone, Default)]
@@ -177,12 +174,9 @@ pub fn build_plan_from_input(
 
 /// Execute a [`Plan`]'s side effects, writing a summary to `out`.
 ///
-/// `cdm_provider` returns the [`LocalFileCdm`] to patch with —
-/// production uses a closure that calls `fetch_manifest` +
-/// `ensure_cdm_for`; tests inject a synthetic CDM pre-built on a
-/// tempdir. V3-Phase A scaffolding: V2 only has `LocalFileCdm`; the
-/// `experimental-bridge` feature will widen this surface to
-/// `Box<dyn CdmProvider>` once `BridgeCdm` lands.
+/// `cdm_resolver` returns the [`CachedCdm`] to patch with — production uses
+/// a closure that calls `fetch_manifest` + `ensure_cdm_for`; tests inject a
+/// synthetic cached CDM.
 ///
 /// `patcher` is the [`PlatformPatcher`] (mock in tests).
 ///
@@ -193,13 +187,13 @@ pub fn build_plan_from_input(
 #[allow(clippy::needless_pass_by_value)]
 pub fn execute_plan<F>(
     plan: &Plan,
-    cdm_provider: F,
+    cdm_resolver: F,
     patcher: &dyn PlatformPatcher,
     out: &mut dyn Write,
     patch_options: PatchOptions,
 ) -> Result<()>
 where
-    F: FnOnce() -> Result<LocalFileCdm>,
+    F: FnOnce() -> Result<CachedCdm>,
 {
     writeln!(out, "Neon: starting first-run setup.").map_err(Error::from)?;
 
@@ -226,7 +220,7 @@ where
     let cdm = if plan.browsers_to_manage.is_empty() {
         None
     } else {
-        Some(cdm_provider()?)
+        Some(cdm_resolver()?)
     };
 
     // Step 3: patch each browser.
@@ -235,7 +229,7 @@ where
         if let Some(cdm) = &cdm {
             // Idempotency: if the browser is already patched at the
             // cached CDM version, skip cleanly. This matters for
-            // re-runs of `neon setup` after a self-update — the user
+            // re-runs of `neon setup` after upgrading Neon — the user
             // may have the browser open, and a forced re-patch would
             // fail with `BrowserRunning` even though the system is
             // already in the desired state.
@@ -318,19 +312,17 @@ pub fn run(args: &Args) -> Result<()> {
     let mut handle = stdout.lock();
     execute_plan(
         &plan,
-        production_cdm_provider,
+        production_cdm_resolver,
         patcher.as_ref(),
         &mut handle,
         PatchOptions::default(),
     )
 }
 
-/// Production CDM resolver: fetches the manifest, ensures the cache,
-/// and wraps the result in a [`LocalFileCdm`] adapter.
-fn production_cdm_provider() -> Result<LocalFileCdm> {
+/// Production CDM resolver: fetches the manifest and ensures the cache.
+fn production_cdm_resolver() -> Result<CachedCdm> {
     let manifest = widevine::fetch_manifest()?;
-    let cached = widevine::cache::ensure_cdm_for(&manifest)?;
-    Ok(LocalFileCdm::from_cached(&cached))
+    widevine::cache::ensure_cdm_for(&manifest)
 }
 
 #[cfg(test)]
@@ -422,7 +414,7 @@ mod tests {
         }
     }
 
-    fn make_cdm(root: &Path, version: &str) -> LocalFileCdm {
+    fn make_cdm(root: &Path, version: &str) -> CachedCdm {
         let dir = root.join(version);
         fs::create_dir_all(dir.join("_platform_specific/linux_x64")).unwrap();
         fs::write(
@@ -430,7 +422,7 @@ mod tests {
             b"fake",
         )
         .unwrap();
-        LocalFileCdm::new(version.to_string(), dir)
+        CachedCdm::new(version.to_string(), dir)
     }
 
     #[test]
@@ -463,12 +455,12 @@ mod tests {
             ..Plan::empty()
         };
         let mut buf = Vec::new();
-        // The CDM provider should not even be called.
-        let cdm_provider = || -> Result<LocalFileCdm> { Err(Error::other("should not be called")) };
+        // The CDM resolver should not even be called.
+        let cdm_resolver = || -> Result<CachedCdm> { Err(Error::other("should not be called")) };
         let patcher = MockPatcher::default();
         execute_plan(
             &plan,
-            cdm_provider,
+            cdm_resolver,
             &patcher,
             &mut buf,
             PatchOptions::default(),

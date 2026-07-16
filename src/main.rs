@@ -104,12 +104,6 @@ enum Command {
 
         /// EME error code to translate (e.g. Netflix N8156-6013).
         error_code: Option<String>,
-
-        /// Show V3 bridge hardware capability matrix + remediation
-        /// (requires the `experimental-bridge` Cargo feature).
-        #[cfg(feature = "experimental-bridge")]
-        #[arg(long)]
-        bridge: bool,
     },
 
     /// Run an EME health check against a known test page.
@@ -123,7 +117,7 @@ enum Command {
         url: Option<String>,
     },
 
-    /// Update the Widevine CDM or self-update the Neon binary.
+    /// Update or roll back the Widevine CDM.
     Update {
         #[command(subcommand)]
         target: UpdateTarget,
@@ -154,18 +148,6 @@ enum Command {
 
     /// Generate the man page in roff format.
     Manpage,
-
-    /// Bridge a URL to a guest VM with hardware-backed Widevine
-    /// (experimental; requires the `experimental-bridge` Cargo feature).
-    ///
-    /// V3-Phase F ships the full subcommand tree. With no subcommand,
-    /// `neon stream` auto-dispatches: `init` if not provisioned,
-    /// `status` otherwise.
-    #[cfg(feature = "experimental-bridge")]
-    Stream {
-        #[command(subcommand)]
-        sub: Option<StreamSubcommand>,
-    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -180,99 +162,6 @@ enum UpdateTarget {
         #[arg(long)]
         cdm_source: Option<String>,
     },
-
-    /// Self-update the Neon binary from GitHub Releases.
-    #[command(name = "self")]
-    SelfUpdate,
-}
-
-/// `neon stream` subcommand group — V3-Phase C onward.
-#[cfg(feature = "experimental-bridge")]
-#[derive(Debug, Subcommand)]
-enum StreamSubcommand {
-    /// Provision the bridge VM (downloads ISO, defines libvirt domain,
-    /// runs unattended install, takes a snapshot). Single command;
-    /// ~30-45 minutes of unattended wait.
-    Init {
-        /// Accept the Microsoft 90-day evaluation license.
-        #[arg(long)]
-        accept_eval: bool,
-
-        /// Bring your own Windows product key (XXXXX-XXXXX-XXXXX-XXXXX-XXXXX).
-        #[arg(long, conflicts_with_all = ["accept_eval", "license_file"])]
-        license_key: Option<String>,
-
-        /// Path to a CSV / KMS key file.
-        #[arg(long, conflicts_with_all = ["accept_eval", "license_key"])]
-        license_file: Option<std::path::PathBuf>,
-    },
-
-    /// Show bridge VM status: defined? running? snapshot age? license expiry?
-    Status {
-        /// Emit machine-readable JSON.
-        #[arg(long)]
-        json: bool,
-    },
-
-    /// Resume the bridge VM and (optionally) open a URL in Edge inside
-    /// the guest. Cold-start target: <10s on a warm snapshot pool.
-    Start {
-        /// Optional URL to open in the bridged browser. URL navigation
-        /// is queued for V3-Phase F; for now Edge boots at default.
-        url: Option<String>,
-    },
-
-    /// Snapshot + halt the bridge VM. Pauses the VM (suspend-to-RAM);
-    /// next `neon stream start` resumes from the `last-good` snapshot.
-    Stop,
-
-    /// Detect + fix broken bridge state.
-    Repair {
-        /// Skip confirmation prompts and apply fixes in priority order.
-        #[arg(long)]
-        auto: bool,
-        /// Force restore from a specific snapshot label.
-        #[arg(long)]
-        from_snapshot: Option<String>,
-        /// Take a new `fresh` snapshot from the current VM state.
-        #[arg(long)]
-        refresh_snapshot: bool,
-    },
-
-    /// Remove the bridge VM, ISO, snapshots.
-    Uninstall {
-        /// Also remove `~/.config/neon/bridge.toml`.
-        #[arg(long)]
-        purge: bool,
-    },
-
-    /// Show / change the bridge license posture.
-    License {
-        #[command(subcommand)]
-        action: Option<LicenseAction>,
-    },
-}
-
-/// Subcommand under `neon stream license`.
-#[cfg(feature = "experimental-bridge")]
-#[derive(Debug, Subcommand)]
-enum LicenseAction {
-    /// Show the current license posture.
-    Show,
-    /// Set a new license posture.
-    Set {
-        /// Opt into the 90-day Microsoft trial.
-        #[arg(long, conflicts_with_all = ["key", "key_file"])]
-        eval: bool,
-        /// Bring your own Windows product key.
-        #[arg(long, conflicts_with_all = ["eval", "key_file"])]
-        key: Option<String>,
-        /// Path to a key file (CSV / KMS).
-        #[arg(long, conflicts_with_all = ["eval", "key"])]
-        key_file: Option<std::path::PathBuf>,
-    },
-    /// Show the PowerShell command the guest runs to re-arm the trial.
-    Rearm,
 }
 
 fn main() -> ExitCode {
@@ -322,16 +211,9 @@ fn dispatch(cmd: Command, output: cli::OutputOptions, as_root: bool) -> neon::Re
         Command::ListBrowsers { all } => {
             cli::list_browsers::run(&cli::list_browsers::Args { all, output })
         }
-        Command::Doctor {
-            share,
-            error_code,
-            #[cfg(feature = "experimental-bridge")]
-            bridge,
-        } => cli::doctor::run(&cli::doctor::Args {
+        Command::Doctor { share, error_code } => cli::doctor::run(&cli::doctor::Args {
             error_code,
             share,
-            #[cfg(feature = "experimental-bridge")]
-            bridge,
             output,
         }),
         Command::Test { browser, url } => cli::test::run(&cli::test::Args {
@@ -348,7 +230,6 @@ fn dispatch(cmd: Command, output: cli::OutputOptions, as_root: bool) -> neon::Re
                 cdm_source,
                 output,
             }),
-            UpdateTarget::SelfUpdate => cli::update::run_self(&cli::update::SelfArgs { output }),
         },
         Command::Repair => cli::repair::run(&cli::repair::Args { output }),
         Command::Launch { browser } => cli::launch::run(&cli::launch::Args { browser, output }),
@@ -357,66 +238,7 @@ fn dispatch(cmd: Command, output: cli::OutputOptions, as_root: bool) -> neon::Re
         }
         Command::Completion { shell } => cli::completion::run(shell, Cli::command),
         Command::Manpage => cli::manpage::run(Cli::command),
-        #[cfg(feature = "experimental-bridge")]
-        Command::Stream { sub } => dispatch_stream(sub, output),
     }
-}
-
-#[cfg(feature = "experimental-bridge")]
-fn dispatch_stream(sub: Option<StreamSubcommand>, output: cli::OutputOptions) -> neon::Result<()> {
-    use cli::stream;
-    let s = match sub {
-        None => stream::Subcommand::Default(output),
-        Some(StreamSubcommand::Init {
-            accept_eval,
-            license_key,
-            license_file,
-        }) => stream::Subcommand::Init(stream::InitArgs {
-            accept_eval,
-            license_key,
-            license_file,
-            output,
-        }),
-        Some(StreamSubcommand::Status { json }) => {
-            stream::Subcommand::Status(stream::StatusArgs { json, output })
-        }
-        Some(StreamSubcommand::Start { url }) => {
-            stream::Subcommand::Start(stream::StartArgs { url, output })
-        }
-        Some(StreamSubcommand::Stop) => stream::Subcommand::Stop(stream::StopArgs { output }),
-        Some(StreamSubcommand::Repair {
-            auto,
-            from_snapshot,
-            refresh_snapshot,
-        }) => stream::Subcommand::Repair(stream::RepairArgs {
-            auto,
-            from_snapshot,
-            refresh_snapshot,
-            output,
-        }),
-        Some(StreamSubcommand::Uninstall { purge }) => {
-            stream::Subcommand::Uninstall(stream::UninstallArgs { purge, output })
-        }
-        Some(StreamSubcommand::License { action }) => {
-            stream::Subcommand::License(stream::LicenseArgs {
-                action: match action {
-                    None | Some(LicenseAction::Show) => stream::license::Action::Show,
-                    Some(LicenseAction::Set {
-                        eval,
-                        key,
-                        key_file,
-                    }) => stream::license::Action::Set {
-                        eval,
-                        key,
-                        key_file,
-                    },
-                    Some(LicenseAction::Rearm) => stream::license::Action::Rearm,
-                },
-                output,
-            })
-        }
-    };
-    stream::run(s)
 }
 
 /// Map an [`Error`]'s category to a stable exit code.

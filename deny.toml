@@ -49,17 +49,6 @@ allow = [
 ]
 confidence-threshold = 0.93
 
-# Per-crate LGPL allowance for the V3 `experimental-bridge` libvirt
-# bindings. `virt`/`virt-sys` are FFI wrappers around libvirt itself.
-# Static linking against an LGPL-2.1 library imposes copyleft on the
-# linked binary; we accept this *only* when the user opts into the
-# `experimental-bridge` Cargo feature (the dep is `optional = true`).
-# Default `cargo install neon` builds do not pull these in at all.
-exceptions = [
-    { name = "virt", allow = ["LGPL-2.1", "LGPL-2.1-only"] },
-    { name = "virt-sys", allow = ["LGPL-2.1", "LGPL-2.1-only"] },
-]
-
 [[licenses.clarify]]
 crate = "ring"
 expression = "MIT AND ISC AND OpenSSL"
