@@ -297,11 +297,11 @@ where
 ///
 /// # Errors
 ///
-/// * Propagates any error from manifest / CDM resolution.
+/// * Propagates errors from browser detection, manifest retrieval, or CDM resolution.
 /// * `Other` if the host platform isn't supported.
 pub fn run(args: &Args) -> Result<()> {
     let _ = args; // currently no per-subcommand flags
-    let detected = browsers::detect_browsers().unwrap_or_default();
+    let detected = browsers::detect_browsers()?;
     let legacy = migration::detect_legacy_install();
     let prompts = DialoguerPrompts;
     let plan = build_plan_from_input(&prompts, &detected, !legacy.is_empty())?;

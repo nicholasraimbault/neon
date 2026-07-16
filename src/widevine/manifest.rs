@@ -14,7 +14,7 @@
 //! https://raw.githubusercontent.com/mozilla-firefox/firefox/refs/heads/main/toolkit/content/gmp-sources/widevinecdm.json
 //! ```
 //!
-//! The shape (per the live file at the time of Phase 1 implementation) is:
+//! The manifest shape is:
 //!
 //! ```json
 //! {
@@ -50,12 +50,6 @@
 //!
 //! [`fetch_manifest`] walks the chain in order. On any successful network
 //! fetch it writes the parsed JSON back to the cache so step 3 stays warm.
-//!
-//! ## What this module does NOT do
-//!
-//! * No CRX3 download — that's Phase 2 in `widevine::download`.
-//! * No SHA-512 verification of the CRX3 — also Phase 2.
-//! * No staging or extraction — Phase 2 in `widevine::extract` / `cache`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -110,8 +104,8 @@ pub struct GmpVendor {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum PlatformEntry {
-    /// Concrete entry. Mozilla also includes `mirrorUrls` in some entries
-    /// — we capture those for the download flow (Phase 2).
+    /// Concrete entry. Mozilla also includes `mirrorUrls` in some entries,
+    /// which are retained for download fallback.
     Concrete {
         /// Direct CRX3 download URL.
         #[serde(rename = "fileUrl")]

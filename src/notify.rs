@@ -6,9 +6,6 @@
 //! * Compose body text once, with platform-aware truncation (macOS displays
 //!   the body in a small popover and starts truncating around 250 chars; we
 //!   truncate to a generous 240 to leave room for the ellipsis).
-//! * Feature-gate action buttons to Linux only — macOS's notification stack
-//!   does **not** support action buttons through this crate (verified
-//!   upstream; spec calls this out).
 //! * Honor a single env var, `SILVERVINE_TEST_NOTIFY_NOOP=1`, which short-circuits
 //!   any actual D-Bus / `mac-notification-sys` dispatch. Tests rely on this
 //!   to verify body composition without disturbing the user's notification
@@ -138,8 +135,7 @@ fn dispatch(summary: &str, body: &str, kind: NotificationKind) {
     }
 }
 
-/// Send a notification via `notify-rust`. Linux supports action buttons;
-/// macOS does not, so we feature-gate the button code.
+/// Send a notification via `notify-rust`.
 #[allow(unused_variables)] // `kind` only consumed on Linux
 fn send_native(
     summary: &str,
@@ -157,14 +153,6 @@ fn send_native(
             NotificationKind::Success | NotificationKind::Info => notify_rust::Urgency::Normal,
         };
         n.urgency(urgency);
-        // Action-button slots — daemon team can wire these to IPC commands
-        // in a follow-up. For Phase 3 we ship the button surface but no
-        // reactive handler thread (button clicks are no-ops at the
-        // notification daemon level until the IPC client adds a handler).
-        // Action buttons are NOT supported on macOS per the spec.
-        if matches!(kind, NotificationKind::Failure) {
-            n.action("doctor", "Run silvervine doctor");
-        }
     }
 
     n.show()?;

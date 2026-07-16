@@ -107,8 +107,8 @@ pub struct RunOptions {
     pub heartbeat_interval: Option<Duration>,
     /// Override the integrity-check interval. `None` uses [`INTEGRITY_INTERVAL_SECS`].
     pub integrity_interval: Option<Duration>,
-    /// Inject a fixed list of browsers for tests. `None` calls
-    /// [`browsers::detect_browsers`] at runtime.
+    /// Inject a fixed list of browsers for tests. When absent, detection uses
+    /// the selected [`Config`].
     pub browsers_override: Option<Vec<Browser>>,
     /// Inject a config for tests. `None` calls [`load_config`] at runtime.
     pub config_override: Option<Config>,
@@ -152,22 +152,20 @@ pub fn run_with(options: &RunOptions) -> Result<()> {
     };
 
     let browsers = match options.browsers_override.clone() {
-        Some(b) => b,
-        None => browsers::detect_browsers().unwrap_or_else(|e| {
-            tracing::warn!(
-                target: "silvervine::daemon",
-                error = %e,
-                "browser detection failed; continuing with empty list"
-            );
-            Vec::new()
-        }),
+        Some(browsers) => browsers,
+        None => match browsers::Os::current() {
+            Some(os) => browsers::detect_browsers_with(
+                os,
+                &browsers::FilesystemRoots::default_for(os),
+                &config,
+            ),
+            None => Vec::new(),
+        },
     };
 
     let stop = Arc::new(AtomicBool::new(false));
 
-    // Initial menu state — every browser starts as "not patched" since
-    // we haven't run a check yet (Phase 2's is_patched is a stub returning
-    // false). The daemon's main loop updates this as patch events occur.
+    // Build the initial menu from current on-disk patch state.
     let initial_state = MenuState {
         browsers: browsers
             .iter()
@@ -238,7 +236,6 @@ pub fn run_with(options: &RunOptions) -> Result<()> {
     // Run the main event loop. In production this blocks until the user
     // clicks Quit / sends SIGTERM. In test mode (`single_iteration`) we run
     // one iteration then return.
-    let _ = config;
     let result = run_event_loop(&tray, &stop, options.single_iteration, Some(&ipc_state));
 
     // Tear down: writes shutdown stamp + joins threads.
@@ -755,7 +752,17 @@ fn detected_browsers_from(state: Option<&Arc<IpcSharedState>>) -> Vec<Browser> {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone(),
-        None => browsers::detect_browsers().unwrap_or_default(),
+        None => match browsers::detect_browsers() {
+            Ok(browsers) => browsers,
+            Err(error) => {
+                tracing::warn!(
+                    target: "silvervine::daemon",
+                    error = %error,
+                    "browser detection failed"
+                );
+                Vec::new()
+            }
+        },
     }
 }
 
@@ -783,7 +790,19 @@ fn handle_update_widevine() {
         }
     };
     let version = cdm.version().to_string();
-    let detected = browsers::detect_browsers().unwrap_or_default();
+    let detected = match browsers::detect_browsers() {
+        Ok(browsers) => browsers,
+        Err(error) => {
+            crate::hooks::emit_post_update(Some(&version), false);
+            tracing::warn!(
+                target: "silvervine::daemon",
+                error = %error,
+                "Widevine refreshed, but browser detection failed"
+            );
+            notify_user::notify_failure(error.category, &error.message);
+            return;
+        }
+    };
     let results = drive_patch_flow_with_cdm(&detected, None, false, Some(cdm));
     crate::hooks::emit_post_update(Some(&version), true);
     notify_user::notify_info(&format!(

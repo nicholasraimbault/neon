@@ -168,6 +168,7 @@ fn render_json(report: &StatusReport, out: &mut dyn Write) -> Result<()> {
 /// # Errors
 ///
 /// * `Other` if `--watch` and `--json` are combined (incompatible).
+/// * Errors from browser detection.
 pub fn run(args: &Args) -> Result<()> {
     if args.watch && args.output.json {
         return Err(Error::other(
@@ -177,7 +178,7 @@ pub fn run(args: &Args) -> Result<()> {
     if args.watch {
         return run_watch();
     }
-    let detected = browsers::detect_browsers().unwrap_or_default();
+    let detected = browsers::detect_browsers()?;
     let report = build_status(&detected, read_heartbeat(), current_cdm_version());
 
     let stdout = std::io::stdout();
@@ -194,34 +195,51 @@ pub fn run(args: &Args) -> Result<()> {
 /// signal handler.
 fn run_watch() -> Result<()> {
     use std::io::Write as _;
+
+    // Fail before changing terminal state when the initial config is invalid.
+    let mut detected = browsers::detect_browsers()?;
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
-    // Hide the cursor for the duration of watch mode.
-    let _ = crossterm::execute!(handle, crossterm::cursor::Hide);
+    crossterm::execute!(handle, crossterm::cursor::Hide).map_err(Error::from)?;
+
     let interval = std::time::Duration::from_secs(2);
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     install_ctrlc_handler(&stop);
-    while !stop.load(std::sync::atomic::Ordering::SeqCst) {
-        let detected = browsers::detect_browsers().unwrap_or_default();
-        let report = build_status(&detected, read_heartbeat(), current_cdm_version());
-        let _ = crossterm::execute!(
-            handle,
-            crossterm::cursor::MoveTo(0, 0),
-            crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
-        );
-        render_text(&report, &mut handle).map_err(Error::from)?;
-        let _ = handle.flush();
-        // Sleep in small increments so Ctrl-C is observed promptly.
-        let mut slept = std::time::Duration::ZERO;
-        let granularity = std::time::Duration::from_millis(100);
-        while slept < interval && !stop.load(std::sync::atomic::Ordering::SeqCst) {
-            std::thread::sleep(granularity);
-            slept += granularity;
+    let watch_result = (|| -> Result<()> {
+        while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+            let report = build_status(&detected, read_heartbeat(), current_cdm_version());
+            crossterm::execute!(
+                handle,
+                crossterm::cursor::MoveTo(0, 0),
+                crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
+            )
+            .map_err(Error::from)?;
+            render_text(&report, &mut handle).map_err(Error::from)?;
+            handle.flush().map_err(Error::from)?;
+
+            // Sleep in small increments so Ctrl-C is observed promptly.
+            let mut slept = std::time::Duration::ZERO;
+            let granularity = std::time::Duration::from_millis(100);
+            while slept < interval && !stop.load(std::sync::atomic::Ordering::SeqCst) {
+                std::thread::sleep(granularity);
+                slept += granularity;
+            }
+            if !stop.load(std::sync::atomic::Ordering::SeqCst) {
+                detected = browsers::detect_browsers()?;
+            }
         }
+        Ok(())
+    })();
+
+    let restore_result = (|| -> Result<()> {
+        crossterm::execute!(handle, crossterm::cursor::Show).map_err(Error::from)?;
+        writeln!(handle).map_err(Error::from)
+    })();
+    match (watch_result, restore_result) {
+        (Err(watch_error), Err(restore_error)) => Err(restore_error.with_source(watch_error)),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Ok(()), Ok(())) => Ok(()),
     }
-    let _ = crossterm::execute!(handle, crossterm::cursor::Show);
-    let _ = writeln!(handle);
-    Ok(())
 }
 
 /// Best-effort Ctrl-C handler for watch mode. We don't pull in the

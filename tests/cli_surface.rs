@@ -105,6 +105,31 @@ fn requested_missing_browser_is_an_error_not_empty_success() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("was not found"));
 }
 
+#[test]
+fn malformed_config_is_an_error_not_an_empty_browser_list() {
+    let tmp = TempDir::new().unwrap();
+    let home = tmp.path().join("home");
+    #[cfg(target_os = "macos")]
+    let config = home.join("Library/Application Support/silvervine/config.toml");
+    #[cfg(not(target_os = "macos"))]
+    let config = tmp.path().join("config/silvervine/config.toml");
+    std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+    std::fs::write(&config, "not = [valid toml").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_silvervine"))
+        .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", tmp.path().join("config"))
+        .env("XDG_CACHE_HOME", tmp.path().join("cache"))
+        .env("SILVERVINE_TEST_DATA_MIGRATION_NOOP", "1")
+        .args(["list-browsers", "--json"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("StateCorrupted"));
+    assert!(output.stdout.is_empty());
+}
+
 #[cfg(unix)]
 #[test]
 fn rollback_json_stdout_is_exactly_one_document() {

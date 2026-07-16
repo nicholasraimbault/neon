@@ -122,9 +122,9 @@ pub fn spawn_detached(executable: &std::path::Path) -> Result<()> {
 /// # Errors
 ///
 /// * `Other` if the named browser isn't detected.
-/// * Any error from `patch_browser` (when patching is needed).
+/// * Any error from browser detection or `patch_browser` (when patching is needed).
 pub fn run(args: &Args) -> Result<()> {
-    let detected = browsers::detect_browsers().unwrap_or_default();
+    let detected = browsers::detect_browsers()?;
     let browser = detected
         .iter()
         .find(|b| b.name().eq_ignore_ascii_case(&args.browser))

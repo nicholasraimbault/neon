@@ -139,7 +139,7 @@ fn render_json(entries: &[ListEntry], out: &mut dyn Write) -> Result<()> {
 ///
 /// * Any error from [`browsers::detect_browsers`] (malformed config).
 pub fn run(args: &Args) -> Result<()> {
-    let detected = browsers::detect_browsers().unwrap_or_default();
+    let detected = browsers::detect_browsers()?;
     let os = browsers::Os::current();
     let entries = build_entries(&detected, os, args.all);
 

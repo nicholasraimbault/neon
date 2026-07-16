@@ -6,26 +6,14 @@
 //!
 //! * [`error`] — categorized [`Error`] / [`Result`] used everywhere.
 //! * [`browsers`] — known-list constants, auto-discovery, custom-config TOML.
-//! * [`widevine`] — Mozilla manifest fetch + (in Phase 2) CRX3 download/extract.
-//! * [`config`] — global `~/.config/silvervine/config.toml` schema.
+//! * [`widevine`] — Mozilla manifest fetch, verification, download, and extraction.
+//! * [`config`] — platform config-file schema and loading.
 //! * [`lockfile`] — `flock`-based exclusive lock helper.
 //! * [`platform`] — XDG/Apple paths, privilege escalation, atomic-rename.
 //! * [`migration`] — migrate Neon V2 data and detect/remove legacy Neon V1 installs.
 //!
 //! The library exposes browser discovery, Widevine retrieval, atomic patching,
 //! platform integration, and daemon support used by the `silvervine` binary.
-//!
-//! # Public API contracts
-//!
-//! | Module | Function / Type | Stability |
-//! |---|---|---|
-//! | `error` | `Error`, `ErrorCategory`, `Result<T>` | Stable — adding categories ok, renaming is breaking |
-//! | `widevine` | `fetch_manifest(&[Url]) -> Result<Manifest>` | Stable |
-//! | `widevine` | `Manifest`, `Platform`, `PLATFORM_KEY` | Stable |
-//! | `browsers` | `detect_browsers() -> Vec<Browser>` | Stable |
-//! | `browsers` | `Browser`, `BrowserKind`, `Platform` | Stable |
-//! | `config` | `Config`, `load_config() -> Result<Config>` | Stable |
-//! | `lockfile` | `with_lock(&Path, FnOnce) -> Result<T>` | Stable |
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]

@@ -53,10 +53,10 @@ pub fn build_plan(
 ///
 /// # Errors
 ///
-/// Propagates from `execute_plan`; `Other` if the host platform isn't
-/// supported (no `host_patcher`).
+/// Propagates errors from browser detection and `execute_plan`; `Other` if
+/// the host platform isn't supported (no `host_patcher`).
 pub fn run(args: &Args) -> Result<()> {
-    let detected = browsers::detect_browsers().unwrap_or_default();
+    let detected = browsers::detect_browsers()?;
     let legacy = migration::detect_legacy_install();
     let plan = build_plan(args, detected, !legacy.is_empty());
 

@@ -230,9 +230,9 @@ fn render_json(reports: &[PatchReport], out: &mut dyn Write) -> Result<()> {
 /// # Errors
 ///
 /// * `Other` if no browsers were detected to patch.
-/// * Any error from manifest / CDM resolution.
+/// * Any error from browser detection, manifest retrieval, or CDM resolution.
 pub fn run(args: &Args) -> Result<()> {
-    let detected = browsers::detect_browsers().unwrap_or_default();
+    let detected = browsers::detect_browsers()?;
     let patcher = patch::host_patcher()?;
     let options = PatchOptions {
         force_while_running: args.force,
