@@ -18,7 +18,7 @@ Please **do not** file security issues on GitHub Issues. Public disclosure befor
 
 In your report, please include:
 
-- Affected version (output of `neon --version`).
+- Affected version (output of `silvervine --version`).
 - Affected platform + version (`uname -a` on Linux; `sw_vers` on macOS).
 - A description of the vulnerability — what's the impact, who's affected, what's the attack surface.
 - Reproduction steps, ideally including a minimal proof-of-concept.
@@ -35,33 +35,33 @@ In your report, please include:
 
 In scope:
 
-- Code execution outside the user's session via a Neon-controlled file (configs, hooks, cache).
+- Code execution outside the user's session via a Silvervine-controlled file (configs, hooks, cache).
 - Privilege escalation paths that don't require a sudo prompt the user can refuse.
 - Bundle-write paths that can write outside the targeted browser bundle.
 - Network paths that fetch unsigned content and act on it (Widevine CDM is hash-verified against the manifest; the manifest is fetched over HTTPS but is itself signed by Mozilla).
 - Race conditions in the atomic-patch protocol that can leave a browser bundle destroyed.
 - Lockfile / IPC race conditions that can be triggered by an unprivileged local user to interfere with the daemon.
-- Any default-on telemetry. Neon ships **no** telemetry or error-reporting endpoint; this should never change without an explicit major-version migration.
+- Any default-on telemetry. Silvervine ships **no** telemetry or error-reporting endpoint; this should never change without an explicit major-version migration.
 
 Out of scope:
 
-- L3 → L1 DRM bypass discussion. Neon is explicitly software-only L3; that's a feature, not a bug.
+- L3 → L1 DRM bypass discussion. Silvervine is explicitly software-only L3; that's a feature, not a bug.
 - Patched browsers being rejected by services with hardware DRM enforcement (Apple TV+, some Disney+ regions).
-- The Widevine CDM itself having vulnerabilities — Neon ships the same CDM Mozilla ships; report those to Mozilla / Google.
-- Neon being broken on a fork of a fork of a fork of Chromium that the auto-discovery doesn't find. (File a feature request, not a security report.)
+- The Widevine CDM itself having vulnerabilities — Silvervine ships the same CDM Mozilla ships; report those to Mozilla / Google.
+- Silvervine being broken on a fork of a fork of a fork of Chromium that the auto-discovery doesn't find. (File a feature request, not a security report.)
 
 ## Scope: privilege model
 
-Neon V2 runs **entirely in the user session** — the daemon is a LaunchAgent (macOS) or systemd-user unit (Linux), not a root daemon. The CDM patches require write access to browser bundles in `/Applications` (macOS) or `/opt`, `/usr/lib/`, etc. (Linux), so the patch path itself escalates via:
+Silvervine V2 runs **entirely in the user session** — the daemon is a LaunchAgent (macOS) or systemd-user unit (Linux), not a root daemon. The CDM patches require write access to browser bundles in `/Applications` (macOS) or `/opt`, `/usr/lib/`, etc. (Linux), so the patch path itself escalates via:
 
 - `osascript -e "do shell script ... with administrator privileges"` on macOS — system password prompt.
 - `pkexec` (preferred) → `sudo` (fallback) on Linux — system password prompt.
 
-Both prompt the user. Both require user consent each time (Neon does not cache credentials). The escalated child runs only the bundle-write portion — never an arbitrary command — and is invoked as `neon --as-root <subcommand>` so its arguments are auditable.
+Both prompt the user. Both require user consent each time (Silvervine does not cache credentials). The escalated child runs only the hidden filesystem-only privileged patch operation — never discovery, configuration, network, cache, logging, hooks, or an arbitrary command. Its auditable arguments carry the parent's exact browser path, verified CDM directory/version, trusted same-filesystem backup parent, browser display name, and force decision; on macOS they also carry the exact parent-selected framework and framework version.
 
-User-installed browsers in `~/Applications` (macOS) or `~/.local/...` (Linux) don't require escalation. Custom-path browsers configured in `~/.config/neon/config.toml` follow the path's actual permissions.
+User-installed browsers in `~/Applications` (macOS) or `~/.local/...` (Linux) don't require escalation. Custom-path browsers configured in `~/.config/silvervine/config.toml` follow the path's actual permissions.
 
-Neon ships **no** telemetry or error-reporting endpoint. The binary never POSTs failure metadata anywhere — bug reports go through GitHub Issues, full stop.
+Silvervine ships **no** telemetry or error-reporting endpoint. The binary never POSTs failure metadata anywhere — bug reports go through GitHub Issues, full stop.
 
 ## Known limitations
 
@@ -71,4 +71,4 @@ Neon ships **no** telemetry or error-reporting endpoint. The binary never POSTs 
 
 ## Bug bounty
 
-There is no bug bounty program. Neon is a hobbyist project run on my spare time; I can't pay for bugs. I **can** credit you in release notes and CVE filings, and I deeply appreciate responsible disclosure.
+There is no bug bounty program. Silvervine is a hobbyist project run on my spare time; I can't pay for bugs. I **can** credit you in release notes and CVE filings, and I deeply appreciate responsible disclosure.
