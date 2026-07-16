@@ -29,19 +29,20 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1.1"
 # HTTPS for manifest fetch — rustls only (cargo-deny bans openssl).
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
 # URL type used in the public `fetch_manifest` API.
 url = "2"
 # XDG / platform-conventional paths.
 dirs = "6"
 # `flock`-based exclusive lockfile.
 fs2 = "0.4"
-# SHA-512 verification for the Widevine CRX3 download (Phase 2).
+# SHA-512 verification for Widevine CRX3 downloads.
 sha2 = "0.11"
-# CRX3 ZIP body extraction. Default features pull lots of compression
-# methods we don't need; only deflate is required for Mozilla's CRX3.
-zip = { version = "2", default-features = false, features = ["deflate"] }
-# Process scanning for browser-running detection (Phase 2).
+# CRX3 ZIP body extraction. Select only flate2-based deflate decoding;
+# zip's umbrella `deflate` feature also enables the unused Zopfli encoder.
+zip = { version = "2", default-features = false, features = ["deflate-flate2", "flate2"] }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+# Process scanning for browser-running detection.
 sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 # Direct FFI for `renameat2(RENAME_EXCHANGE)` (Linux) and
 # `renameatx_np(RENAME_SWAP)` (macOS): used by `crate::platform` for the
@@ -59,9 +60,7 @@ tracing = "0.1"
 # structured stderr output during a tray run.
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
 # Native desktop notifications (notify-rust → libnotify on Linux,
-# mac-notification-sys on macOS). macOS lacks action-button support
-# (verified upstream limitation); we feature-gate any action-button code
-# with `#[cfg(target_os = "linux")]`.
+# mac-notification-sys on macOS).
 notify-rust = "4"
 # Cross-platform filesystem watcher. Driven by inotify on Linux and
 # FSEvents on macOS under the hood. We use the synchronous `Watcher`

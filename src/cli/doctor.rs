@@ -206,7 +206,7 @@ pub fn share_url(diagnostics: &Diagnostics) -> String {
 ///
 /// # Errors
 ///
-/// * `Other` if writing to stdout fails.
+/// * Errors from browser detection or writing to stdout.
 pub fn run(args: &Args) -> Result<()> {
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
@@ -216,7 +216,7 @@ pub fn run(args: &Args) -> Result<()> {
         return run_translate(code, args.output, &mut handle);
     }
 
-    let detected = browsers::detect_browsers().unwrap_or_default();
+    let detected = browsers::detect_browsers()?;
     let heartbeat_at = crate::cli::status::read_heartbeat();
     let current_cdm = crate::cli::status::current_cdm_version();
     let legacy_present = !crate::migration::detect_legacy_install().is_empty();

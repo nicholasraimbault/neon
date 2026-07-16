@@ -8,19 +8,12 @@
 //!    * macOS: scan `/Applications/*.app` for Chromium-framework bundles.
 //!    * Linux: scan `/opt/*`, `/usr/lib/*`, `/usr/lib64/*`,
 //!      `/usr/local/lib/*` for `chrome-sandbox` / `chromium-sandbox`.
-//! 3. **Process-based discovery** ([`discovery::discover_processes`])
-//!    — Phase 2 wires `sysinfo`. Phase 1 ships only the entry-point stub.
+//! 3. **Process-based discovery** ([`discovery::discover_processes`]).
 //! 4. **Custom config entries** ([`crate::config::CustomBrowserConfig`])
 //!    — read from `~/.config/silvervine/config.toml`.
 //!
 //! All four sources are unioned with same-`install_path` deduplication
 //! (keeping the first occurrence wins).
-//!
-//! ## What this module does NOT do
-//!
-//! * No "is patched" check — that's Phase 2 once the patch module exists.
-//! * No platform syscalls. The `discovery` module uses only `std::fs`,
-//!   which works in tests with synthesized filesystems via `tempfile`.
 
 use std::path::{Path, PathBuf};
 
@@ -176,9 +169,8 @@ impl Browser {
 
 /// Detect browsers on the host using all available sources.
 ///
-/// This is the primary public API. CLI commands that enumerate browsers
-/// (`list-browsers`, `status`, `patch`) call this. Phase 2 patching code
-/// also calls this to discover what to patch.
+/// This is the primary public API used by commands that enumerate or patch
+/// browsers.
 ///
 /// # Behavior
 ///
@@ -236,7 +228,7 @@ pub fn detect_browsers_with(os: Os, roots: &FilesystemRoots, config: &Config) ->
     for b in discovery::discover_filesystem(os, roots) {
         push(b, &mut out, &mut seen);
     }
-    // 3. Process-based discovery (Phase 1 stub returns empty).
+    // 3. Process-based discovery.
     for b in discovery::discover_processes() {
         push(b, &mut out, &mut seen);
     }
@@ -254,9 +246,8 @@ pub fn detect_browsers_with(os: Os, roots: &FilesystemRoots, config: &Config) ->
 fn browser_from_custom(os: Os, entry: &CustomBrowserConfig) -> Option<Browser> {
     match os {
         Os::Macos => {
-            // macOS entries set `bundle_path`. `framework_name` is optional
-            // — if missing, the patch module will infer it from the bundle
-            // name (Phase 2).
+            // macOS entries set `bundle_path`. The patcher discovers the
+            // framework when `framework_name` is absent.
             entry.bundle_path.as_ref().map(|p| Browser {
                 name: entry.name.clone(),
                 install_path: p.clone(),
@@ -297,9 +288,8 @@ mod tests {
         let fw_dir = frameworks.join(format!("{framework}.framework"));
         let versions = fw_dir.join("Versions").join("128.0.6613.119");
         fs::create_dir_all(&versions).expect("mkdir versions");
-        // The patch module (Phase 2) will look for the CDM under
-        // `Versions/<n>/Libraries/`. For Phase 1 detection, it's enough
-        // that the `.framework/Versions/<n>` directory exists.
+        // Detection only needs the Chromium framework shape; patching later
+        // resolves the active version under `Versions/<n>/Libraries/`.
         app
     }
 

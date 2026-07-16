@@ -177,9 +177,9 @@ fn browser_executable_path(browser: &Browser) -> Result<PathBuf> {
 /// # Errors
 ///
 /// * `Other` if no browsers are detected.
-/// * Any error from `browser_executable_path`.
+/// * Any error from browser detection or `browser_executable_path`.
 pub fn run(args: &Args) -> Result<()> {
-    let detected = browsers::detect_browsers().unwrap_or_default();
+    let detected = browsers::detect_browsers()?;
     let plan = Plan::build(&detected, args)?;
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();

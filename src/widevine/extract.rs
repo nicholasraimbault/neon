@@ -243,7 +243,7 @@ mod tests {
             let cursor = Cursor::new(&mut zip_bytes);
             let mut zip = ZipWriter::new(cursor);
             let opts: SimpleFileOptions =
-                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
             zip.start_file("manifest.json", opts)
                 .expect("start manifest");
             zip.write_all(br#"{"name":"WidevineCdm","version":"4.10.test"}"#)

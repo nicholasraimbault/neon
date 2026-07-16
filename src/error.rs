@@ -198,9 +198,7 @@ impl From<std::io::Error> for Error {
         let kind = err.kind();
         let category = match kind {
             std::io::ErrorKind::PermissionDenied => ErrorCategory::PermissionDenied,
-            // `StorageFull` is stable in Rust 1.83; on older toolchains
-            // ENOSPC reports as `Other`. The MSRV in our `Cargo.toml`
-            // is 1.75, so we don't depend on the new variant here.
+            std::io::ErrorKind::StorageFull => ErrorCategory::DiskFull,
             _ => ErrorCategory::Other,
         };
         let message = err.to_string();
@@ -341,6 +339,13 @@ mod tests {
         let io = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
         let err: Error = io.into();
         assert_eq!(err.category, ErrorCategory::PermissionDenied);
+    }
+
+    #[test]
+    fn io_storage_full_routes_to_disk_full_category() {
+        let io = std::io::Error::from(std::io::ErrorKind::StorageFull);
+        let err: Error = io.into();
+        assert_eq!(err.category, ErrorCategory::DiskFull);
     }
 
     #[test]

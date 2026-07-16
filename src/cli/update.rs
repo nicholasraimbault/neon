@@ -51,7 +51,7 @@ pub struct WidevineUpdateOutcome {
 ///
 /// # Errors
 ///
-/// * Any error from `fetch_manifest` / `ensure_cdm_for`.
+/// * Errors from manifest retrieval, cache updates, browser detection, or patcher creation.
 pub fn run_widevine(args: &WidevineArgs) -> Result<()> {
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
@@ -109,7 +109,7 @@ fn run_widevine_install(args: &WidevineArgs, out: &mut dyn Write) -> Result<Wide
     }
 
     // Re-patch every detected browser at the new version.
-    let detected = crate::browsers::detect_browsers().unwrap_or_default();
+    let detected = crate::browsers::detect_browsers()?;
     let patcher = patch::host_patcher()?;
     let opts = PatchOptions {
         force_while_running: false,
